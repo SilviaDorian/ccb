@@ -35,8 +35,9 @@ app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 const corsOptions = {
   origin: [
     'http://localhost:3000',
+    'http://ccb.site.je/',
     'http://localhost:5173',
-    'https://your-taskearn-frontend.vercel.app' // Replace with your frontend domain
+    'https://ccb.site.je/' // Replace with your frontend domain
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-key'],
