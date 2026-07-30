@@ -4,27 +4,25 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
-// Import TaskEarn Controllers
-import {
-  getUserProfile,
-  getReferralSummary
-} from '../controllers/userController.js';
+// --- Import TaskEarn Handlers / Routes based on your file structure ---
+import loginHandler from './auth/login.js';
+import registerHandler from './auth/register.js';
 
-import {
-  getTasksList,
-  submitTaskProof
-} from '../controllers/taskController.js';
+import referralStatsHandler from './referrals/stats.js';
 
-import {
-  upgradeVipLevel
-} from '../controllers/vipController.js';
+import tasksIndexHandler from './tasks/index.js';
+import tasksListHandler from './tasks/lists.js';
+import tasksSubmitHandler from './tasks/submit.js';
 
-// Import TaskEarn Modular Routes
-import authRoutes from '../routes/auth.js';
-import userRoutes from '../routes/users.js';
-import taskRoutes from '../routes/tasks.js';
-import vipRoutes from '../routes/vip.js';
-import transactionRoutes from '../routes/transactions.js';
+import userDashboardHandler from './user/dashboard.js';
+import userProfileHandler from './user/profile.js';
+import userReferralsHandler from './user/referrals.js';
+
+import vipUpgradeHandler from './vip/upgrade.js';
+
+import walletBalanceHandler from './wallet/balance.js';
+import walletDepositHandler from './wallet/deposit.js';
+import walletWithdrawHandler from './wallet/withdraw.js';
 
 dotenv.config();
 
@@ -52,21 +50,34 @@ app.options('*', cors(corsOptions)); // Explicitly handle preflight requests
 app.use(morgan('dev'));
 app.use(express.json());
 
-// --- 3. Modular Routes ---
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/tasks', taskRoutes);
-app.use('/api/vip', vipRoutes);
-app.use('/api/transactions', transactionRoutes);
+// --- 3. Endpoints Wired to File-Based API Handlers ---
 
-// --- 4. Direct Task & User Route Shortcuts ---
-app.get('/api/user/profile', getUserProfile);
-app.get('/api/user/referrals', getReferralSummary);
-app.get('/api/tasks/list', getTasksList);
-app.post('/api/tasks/submit', submitTaskProof);
-app.post('/api/vip/upgrade', upgradeVipLevel);
+// Auth
+app.use('/api/auth/login', loginHandler);
+app.use('/api/auth/register', registerHandler);
 
-// --- 5. Service Status & Health Check ---
+// Referrals
+app.use('/api/referrals/stats', referralStatsHandler);
+
+// Tasks
+app.use('/api/tasks/index', tasksIndexHandler);
+app.use('/api/tasks/list', tasksListHandler);
+app.use('/api/tasks/submit', tasksSubmitHandler);
+
+// User
+app.use('/api/user/dashboard', userDashboardHandler);
+app.use('/api/user/profile', userProfileHandler);
+app.use('/api/user/referrals', userReferralsHandler);
+
+// VIP
+app.use('/api/vip/upgrade', vipUpgradeHandler);
+
+// Wallet
+app.use('/api/wallet/balance', walletBalanceHandler);
+app.use('/api/wallet/deposit', walletDepositHandler);
+app.use('/api/wallet/withdraw', walletWithdrawHandler);
+
+// --- 4. Service Status & Health Check ---
 app.get('/', (req, res) => {
   res.json({
     status: 'Online',
@@ -83,7 +94,7 @@ app.get('/api', (req, res) => {
   });
 });
 
-// --- 6. 404 & Global Error Handling ---
+// --- 5. 404 & Global Error Handling ---
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'API endpoint not found' });
 });
@@ -93,7 +104,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, message: 'Internal Server Error' });
 });
 
-// --- 7. Local Dev Listener ---
+// --- 6. Local Dev Listener ---
 if (process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 4000;
   app.listen(PORT, '0.0.0.0', () => {
