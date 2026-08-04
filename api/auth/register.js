@@ -10,6 +10,9 @@ import { success, error } from '../../utils/response.js';
 
 const router = express.Router();
 
+/**
+ * POST /api/auth/register (or mounted route root '/')
+ */
 router.post('/', async (req, res) => {
   try {
     const { 
@@ -39,17 +42,15 @@ router.post('/', async (req, res) => {
       return error(res, 'Password is required and must be at least 6 characters', 400);
     }
 
-    // 2. Check Existing User
+    // 2. Check Existence (Email or Phone)
     if (identifierEmail) {
       const { data: existingEmail, error: emailCheckErr } = await supabaseAdmin
         .from('users')
         .select('id')
         .eq('email', identifierEmail)
-        .maybeSingle(); // Changed single() -> maybeSingle() to avoid throwing on empty results
+        .maybeSingle();
 
-      if (emailCheckErr) {
-        console.error('Email check Supabase error:', emailCheckErr);
-      }
+      if (emailCheckErr) console.error('Email check error:', emailCheckErr);
 
       if (existingEmail) {
         return error(res, 'Email already registered. Please login instead.', 409);
@@ -63,16 +64,14 @@ router.post('/', async (req, res) => {
         .eq('phone', identifierPhone)
         .maybeSingle();
 
-      if (phoneCheckErr) {
-        console.error('Phone check Supabase error:', phoneCheckErr);
-      }
+      if (phoneCheckErr) console.error('Phone check error:', phoneCheckErr);
 
       if (existingPhone) {
         return error(res, 'Phone number already registered. Please login instead.', 409);
       }
     }
 
-    // 3. Handle Referral Code
+    // 3. Handle Optional Referral Code
     let referredBy = null;
     const activeRefCode = (referral_code || referrerCode || '').trim();
 
@@ -87,7 +86,7 @@ router.post('/', async (req, res) => {
       if (referrer) referredBy = referrer.id;
     }
 
-    // 4. Generate Identifiers
+    // 4. Generate Hashes & Identifiers
     const passwordHash = await hashPassword(password);
     const userUuid = generateUUID();
     const userReferralCode = generateReferralCode();
@@ -95,7 +94,10 @@ router.post('/', async (req, res) => {
     const computedFirstName = first_name || name.trim().split(' ')[0] || null;
     const computedLastName = last_name || name.trim().split(' ').slice(1).join(' ') || null;
 
-    // 5. Insert User
+    // 5. Welcome Bonus Configuration (₦3,500 Naira)
+    const WELCOME_BONUS = 3500;
+
+    // 6. Insert New User with ₦3,500 Initial Balance
     const { data: newUser, error: insertError } = await supabaseAdmin
       .from('users')
       .insert({
@@ -109,13 +111,13 @@ router.post('/', async (req, res) => {
         referred_by: referredBy,
         status: 'active',
         is_verified: false,
-        balance: 0,
+        balance: WELCOME_BONUS,
         pending_balance: 0,
-        total_earned: 0,
+        total_earned: WELCOME_BONUS,
         vip_level: 0,
-        welcome_bonus_claimed: false
+        welcome_bonus_claimed: true
       })
-      .select('id, uuid, email, phone, referral_code, first_name, last_name, balance, vip_level, created_at')
+      .select('id, uuid, email, phone, referral_code, first_name, last_name, balance, total_earned, vip_level, created_at')
       .single();
 
     if (insertError) {
@@ -123,18 +125,32 @@ router.post('/', async (req, res) => {
       return error(res, `Failed to create account: ${insertError.message || 'Database error'}`, 500);
     }
 
-    // 6. Update Referrer Count
+    // 7. Increment Referrer Count (if applicable)
     if (referredBy) {
       await supabaseAdmin.rpc('increment_referral_count', { user_id: referredBy });
     }
 
-    // 7. Token Generation
+    // 8. Log Initial Bonus Transaction (Optional - records transaction history entry if your DB uses a transactions table)
+    try {
+      await supabaseAdmin.from('transactions').insert({
+        user_id: newUser.id,
+        amount: WELCOME_BONUS,
+        type: 'welcome_bonus',
+        status: 'completed',
+        description: 'Welcome Registration Bonus'
+      });
+    } catch (txErr) {
+      // Non-blocking catch in case transactions table structure differs
+      console.warn('Transaction log warning (non-fatal):', txErr.message);
+    }
+
+    // 9. Generate Token & Return Response
     const token = generateToken({ userId: newUser.id, uuid: newUser.uuid });
 
     return success(res, {
       user: newUser,
       token
-    }, 'Account created successfully!', 201);
+    }, 'Account created successfully! ₦3,500 Welcome Bonus has been added to your wallet.', 201);
 
   } catch (err) {
     console.error('CRITICAL: Uncaught register endpoint error:', err);
