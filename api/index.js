@@ -57,7 +57,7 @@ app.use(express.json());
 
 // Auth
 app.use('/api/auth/login', loginHandler);
-app.use('/api/auth/register', registerHandler);
+app.use('/auth/register', registerHandler);
 
 // Referrals
 app.use('/api/referrals/stats', referralStatsHandler);
