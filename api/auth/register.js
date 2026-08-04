@@ -2,7 +2,6 @@ import express from 'express';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { 
   hashPassword, 
-  comparePassword, 
   generateToken, 
   generateReferralCode, 
   generateUUID 
@@ -12,38 +11,71 @@ import { success, error } from '../../utils/response.js';
 const router = express.Router();
 
 /**
- * POST /api/auth/register
+ * POST /api/auth/register (or mounted route root '/')
  */
-router.post('/register', async (req, res) => {
+router.post('/', async (req, res) => {
   try {
-    const { phone, password, referral_code, first_name, last_name } = req.body;
+    const { 
+      name, 
+      email, 
+      phone, 
+      password, 
+      referral_code, 
+      referrerCode, 
+      first_name, 
+      last_name 
+    } = req.body;
 
-    // Validation
-    if (!phone || !password) {
-      return error(res, 'Phone and password are required');
-    }
-    if (password.length < 6) {
-      return error(res, 'Password must be at least 6 characters');
-    }
-
-    // Check if phone already exists
-    const { data: existing } = await supabaseAdmin
-      .from('users')
-      .select('id')
-      .eq('phone', phone)
-      .single();
-
-    if (existing) {
-      return error(res, 'Phone number already registered', 409);
+    // 1. Mandatory Fields Validation
+    if (!name || !name.trim()) {
+      return error(res, 'Name is required', 400);
     }
 
-    // Handle referral
+    const identifierEmail = email ? email.trim().toLowerCase() : null;
+    const identifierPhone = phone ? phone.trim() : null;
+
+    if (!identifierEmail && !identifierPhone) {
+      return error(res, 'Please provide either an email address or a phone number to register', 400);
+    }
+
+    if (!password || password.length < 6) {
+      return error(res, 'Password is required and must be at least 6 characters', 400);
+    }
+
+    // 2. Check Existence (Email or Phone)
+    if (identifierEmail) {
+      const { data: existingEmail } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('email', identifierEmail)
+        .single();
+
+      if (existingEmail) {
+        return error(res, 'Email already registered. Please login instead.', 409);
+      }
+    }
+
+    if (identifierPhone) {
+      const { data: existingPhone } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('phone', identifierPhone)
+        .single();
+
+      if (existingPhone) {
+        return error(res, 'Phone number already registered. Please login instead.', 409);
+      }
+    }
+
+    // 3. Handle Optional Referral Code
     let referredBy = null;
-    if (referral_code) {
+    const activeRefCode = (referral_code || referrerCode || '').trim();
+
+    if (activeRefCode) {
       const { data: referrer } = await supabaseAdmin
         .from('users')
         .select('id')
-        .eq('referral_code', referral_code.toUpperCase())
+        .eq('referral_code', activeRefCode.toUpperCase())
         .single();
 
       if (referrer) {
@@ -51,21 +83,27 @@ router.post('/register', async (req, res) => {
       }
     }
 
-    // Create user
+    // 4. Generate Hashes & Identifiers
     const passwordHash = await hashPassword(password);
     const userUuid = generateUUID();
     const userReferralCode = generateReferralCode();
 
+    // Support single name field or split fallback
+    const computedFirstName = first_name || name.trim().split(' ')[0] || null;
+    const computedLastName = last_name || name.trim().split(' ').slice(1).join(' ') || null;
+
+    // 5. Insert New User
     const { data: newUser, error: insertError } = await supabaseAdmin
       .from('users')
       .insert({
         uuid: userUuid,
-        phone,
+        email: identifierEmail,
+        phone: identifierPhone,
+        first_name: computedFirstName,
+        last_name: computedLastName,
         password_hash: passwordHash,
         referral_code: userReferralCode,
         referred_by: referredBy,
-        first_name: first_name || null,
-        last_name: last_name || null,
         status: 'active',
         is_verified: false,
         balance: 0,
@@ -74,7 +112,7 @@ router.post('/register', async (req, res) => {
         vip_level: 0,
         welcome_bonus_claimed: false
       })
-      .select('id, uuid, phone, referral_code, first_name, last_name, balance, vip_level, created_at')
+      .select('id, uuid, email, phone, referral_code, first_name, last_name, balance, vip_level, created_at')
       .single();
 
     if (insertError) {
@@ -82,88 +120,21 @@ router.post('/register', async (req, res) => {
       return error(res, 'Failed to create account', 500);
     }
 
-    // Update referrer count if exists
+    // 6. Increment Referrer Count (if applicable)
     if (referredBy) {
       await supabaseAdmin.rpc('increment_referral_count', { user_id: referredBy });
     }
 
-    // Generate token
+    // 7. Generate Token & Send Success Response
     const token = generateToken({ userId: newUser.id, uuid: newUser.uuid });
 
     return success(res, {
       user: newUser,
       token
-    }, 'Registration successful', 201);
+    }, 'Account created successfully!', 201);
 
   } catch (err) {
     console.error('Register error:', err);
-    return error(res, 'Internal server error', 500);
-  }
-});
-
-/**
- * POST /api/auth/login
- */
-router.post('/login', async (req, res) => {
-  try {
-    const { phone, password } = req.body;
-
-    if (!phone || !password) {
-      return error(res, 'Phone and password are required');
-    }
-
-    // Find user
-    const { data: user, error: fetchError } = await supabaseAdmin
-      .from('users')
-      .select('*')
-      .eq('phone', phone)
-      .is('deleted_at', null)
-      .single();
-
-    if (fetchError || !user) {
-      return error(res, 'Invalid phone or password', 401);
-    }
-
-    if (user.status === 'suspended' || user.status === 'banned') {
-      return error(res, 'Account is suspended or banned', 403);
-    }
-
-    // Check password
-    const isMatch = await comparePassword(password, user.password_hash);
-    if (!isMatch) {
-      // Increment failed attempts
-      await supabaseAdmin
-        .from('users')
-        .update({ failed_login_attempts: (user.failed_login_attempts || 0) + 1 })
-        .eq('id', user.id);
-
-      return error(res, 'Invalid phone or password', 401);
-    }
-
-    // Update login info
-    await supabaseAdmin
-      .from('users')
-      .update({
-        last_login_at: new Date().toISOString(),
-        last_login_ip: req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
-        login_count: (user.login_count || 0) + 1,
-        failed_login_attempts: 0
-      })
-      .eq('id', user.id);
-
-    // Generate token
-    const token = generateToken({ userId: user.id, uuid: user.uuid });
-
-    // Remove sensitive data
-    const { password_hash, two_factor_secret, ...safeUser } = user;
-
-    return success(res, {
-      user: safeUser,
-      token
-    }, 'Login successful');
-
-  } catch (err) {
-    console.error('Login error:', err);
     return error(res, 'Internal server error', 500);
   }
 });

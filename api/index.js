@@ -56,8 +56,8 @@ app.use(express.json());
 // --- 3. Endpoints Wired to File-Based API Handlers ---
 
 // Auth
-app.use('/login', loginHandler);
-app.use('/register', registerHandler);
+app.use(['/api/auth/register', '/auth/register', '/register'], registerHandler);
+app.use(['/api/auth/login', '/auth/login', '/login'], loginHandler);
 
 
 // Referrals
