@@ -10,9 +10,6 @@ import { success, error } from '../../utils/response.js';
 
 const router = express.Router();
 
-/**
- * POST /api/auth/register (or mounted route root '/')
- */
 router.post('/', async (req, res) => {
   try {
     const { 
@@ -42,13 +39,17 @@ router.post('/', async (req, res) => {
       return error(res, 'Password is required and must be at least 6 characters', 400);
     }
 
-    // 2. Check Existence (Email or Phone)
+    // 2. Check Existing User
     if (identifierEmail) {
-      const { data: existingEmail } = await supabaseAdmin
+      const { data: existingEmail, error: emailCheckErr } = await supabaseAdmin
         .from('users')
         .select('id')
         .eq('email', identifierEmail)
-        .single();
+        .maybeSingle(); // Changed single() -> maybeSingle() to avoid throwing on empty results
+
+      if (emailCheckErr) {
+        console.error('Email check Supabase error:', emailCheckErr);
+      }
 
       if (existingEmail) {
         return error(res, 'Email already registered. Please login instead.', 409);
@@ -56,43 +57,45 @@ router.post('/', async (req, res) => {
     }
 
     if (identifierPhone) {
-      const { data: existingPhone } = await supabaseAdmin
+      const { data: existingPhone, error: phoneCheckErr } = await supabaseAdmin
         .from('users')
         .select('id')
         .eq('phone', identifierPhone)
-        .single();
+        .maybeSingle();
+
+      if (phoneCheckErr) {
+        console.error('Phone check Supabase error:', phoneCheckErr);
+      }
 
       if (existingPhone) {
         return error(res, 'Phone number already registered. Please login instead.', 409);
       }
     }
 
-    // 3. Handle Optional Referral Code
+    // 3. Handle Referral Code
     let referredBy = null;
     const activeRefCode = (referral_code || referrerCode || '').trim();
 
     if (activeRefCode) {
-      const { data: referrer } = await supabaseAdmin
+      const { data: referrer, error: refErr } = await supabaseAdmin
         .from('users')
         .select('id')
         .eq('referral_code', activeRefCode.toUpperCase())
-        .single();
+        .maybeSingle();
 
-      if (referrer) {
-        referredBy = referrer.id;
-      }
+      if (refErr) console.error('Referrer lookup error:', refErr);
+      if (referrer) referredBy = referrer.id;
     }
 
-    // 4. Generate Hashes & Identifiers
+    // 4. Generate Identifiers
     const passwordHash = await hashPassword(password);
     const userUuid = generateUUID();
     const userReferralCode = generateReferralCode();
 
-    // Support single name field or split fallback
     const computedFirstName = first_name || name.trim().split(' ')[0] || null;
     const computedLastName = last_name || name.trim().split(' ').slice(1).join(' ') || null;
 
-    // 5. Insert New User
+    // 5. Insert User
     const { data: newUser, error: insertError } = await supabaseAdmin
       .from('users')
       .insert({
@@ -116,16 +119,16 @@ router.post('/', async (req, res) => {
       .single();
 
     if (insertError) {
-      console.error('Insert error:', insertError);
-      return error(res, 'Failed to create account', 500);
+      console.error('CRITICAL: Supabase Insert Error details:', insertError);
+      return error(res, `Failed to create account: ${insertError.message || 'Database error'}`, 500);
     }
 
-    // 6. Increment Referrer Count (if applicable)
+    // 6. Update Referrer Count
     if (referredBy) {
       await supabaseAdmin.rpc('increment_referral_count', { user_id: referredBy });
     }
 
-    // 7. Generate Token & Send Success Response
+    // 7. Token Generation
     const token = generateToken({ userId: newUser.id, uuid: newUser.uuid });
 
     return success(res, {
@@ -134,8 +137,8 @@ router.post('/', async (req, res) => {
     }, 'Account created successfully!', 201);
 
   } catch (err) {
-    console.error('Register error:', err);
-    return error(res, 'Internal server error', 500);
+    console.error('CRITICAL: Uncaught register endpoint error:', err);
+    return error(res, err.message || 'Internal server error', 500);
   }
 });
 
