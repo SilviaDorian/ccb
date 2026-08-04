@@ -6,59 +6,82 @@ import { success, error } from '../../utils/response.js';
 const router = express.Router();
 
 /**
- * POST /api/auth/login
+ * POST /api/auth/login (or mounted route root '/')
  */
-router.post('/login', async (req, res) => {
+router.post('/', async (req, res) => {
   try {
-    const { phone, password } = req.body;
+    const { email, phone, identifier, password } = req.body;
 
-    if (!phone || !password) {
-      return error(res, 'Phone and password are required');
+    // Determine input value (email or phone)
+    const loginIdentifier = (email || phone || identifier || '').trim();
+
+    if (!loginIdentifier) {
+      return error(res, 'Email or Phone number is required', 400);
     }
 
-    // Find user
-    const { data: user, error: fetchError } = await supabaseAdmin
+    if (!password) {
+      return error(res, 'Password is required', 400);
+    }
+
+    const isEmailInput = loginIdentifier.includes('@');
+    const cleanedIdentifier = isEmailInput ? loginIdentifier.toLowerCase() : loginIdentifier;
+
+    // 1. Query user by email OR phone
+    let query = supabaseAdmin
       .from('users')
       .select('*')
-      .eq('phone', phone)
-      .is('deleted_at', null)
-      .single();
+      .is('deleted_at', null);
 
-    if (fetchError || !user) {
-      return error(res, 'Invalid phone or password', 401);
+    if (isEmailInput) {
+      query = query.eq('email', cleanedIdentifier);
+    } else {
+      query = query.eq('phone', cleanedIdentifier);
     }
 
+    const { data: user, error: fetchError } = await query.maybeSingle();
+
+    if (fetchError) {
+      console.error('Login query error:', fetchError);
+      return error(res, 'Authentication failed', 500);
+    }
+
+    if (!user) {
+      return error(res, 'Invalid credentials. Please check your details or sign up.', 401);
+    }
+
+    // 2. Check account status
     if (user.status === 'suspended' || user.status === 'banned') {
-      return error(res, 'Account is suspended or banned', 403);
+      return error(res, 'Account is suspended or banned. Please contact support.', 403);
     }
 
-    // Check password
+    // 3. Verify password
     const isMatch = await comparePassword(password, user.password_hash);
     if (!isMatch) {
-      // Increment failed attempts
+      // Increment failed attempts audit
       await supabaseAdmin
         .from('users')
         .update({ failed_login_attempts: (user.failed_login_attempts || 0) + 1 })
         .eq('id', user.id);
 
-      return error(res, 'Invalid phone or password', 401);
+      return error(res, 'Invalid credentials. Please check your details.', 401);
     }
 
-    // Update login info
+    // 4. Update login tracking
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0] || req.socket?.remoteAddress || null;
+    
     await supabaseAdmin
       .from('users')
       .update({
         last_login_at: new Date().toISOString(),
-        last_login_ip: req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
+        last_login_ip: clientIp,
         login_count: (user.login_count || 0) + 1,
         failed_login_attempts: 0
       })
       .eq('id', user.id);
 
-    // Generate token
+    // 5. Generate token & exclude security hashes from payload
     const token = generateToken({ userId: user.id, uuid: user.uuid });
 
-    // Remove sensitive data
     const { password_hash, two_factor_secret, ...safeUser } = user;
 
     return success(res, {
@@ -67,8 +90,8 @@ router.post('/login', async (req, res) => {
     }, 'Login successful');
 
   } catch (err) {
-    console.error('Login error:', err);
-    return error(res, 'Internal server error', 500);
+    console.error('CRITICAL: Login endpoint error:', err);
+    return error(res, err.message || 'Internal server error', 500);
   }
 });
 
