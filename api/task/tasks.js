@@ -7,7 +7,7 @@ const router = express.Router();
 
 /**
  * GET /
- * Catches GET requests to /api/tasks (or /api/tasks?category=...)
+ * Fetches tasks matching user's VIP tier with optional category filter
  */
 router.get('/', requireAuth, async (req, res) => {
   try {
@@ -31,7 +31,6 @@ router.get('/', requireAuth, async (req, res) => {
       return error(res, 'Failed to fetch tasks', 500);
     }
 
-    // Safely retrieve user submissions
     const { data: userSubmissions } = await supabaseAdmin
       .from('task_submissions')
       .select('task_id')
@@ -53,7 +52,6 @@ router.get('/', requireAuth, async (req, res) => {
 
 /**
  * GET /available
- * Catches GET requests to /api/tasks/available
  */
 router.get('/available', requireAuth, async (req, res) => {
   try {
@@ -80,7 +78,6 @@ router.get('/available', requireAuth, async (req, res) => {
 
 /**
  * POST /submit
- * Catches POST requests to /api/tasks/submit
  */
 router.post('/submit', requireAuth, async (req, res) => {
   try {
@@ -93,7 +90,6 @@ router.post('/submit', requireAuth, async (req, res) => {
 
     const numericTaskId = Number(task_id);
 
-    // 1. Fetch Task
     const { data: task, error: taskError } = await supabaseAdmin
       .from('tasks')
       .select('*')
@@ -109,7 +105,6 @@ router.post('/submit', requireAuth, async (req, res) => {
       return error(res, 'Insufficient VIP level to complete this task', 403);
     }
 
-    // 2. Prevent Duplicate Submission
     const { data: existing } = await supabaseAdmin
       .from('task_submissions')
       .select('id')
@@ -130,7 +125,6 @@ router.post('/submit', requireAuth, async (req, res) => {
     const newTotalEarned = currentEarned + taskReward;
     const nowIso = new Date().toISOString();
 
-    // 3. Record Submission
     const { data: submission, error: submitError } = await supabaseAdmin
       .from('task_submissions')
       .insert({
@@ -149,7 +143,6 @@ router.post('/submit', requireAuth, async (req, res) => {
       return error(res, 'Failed to record task completion', 500);
     }
 
-    // 4. Credit User Balance & Update Counter
     await supabaseAdmin
       .from('users')
       .update({
@@ -161,7 +154,6 @@ router.post('/submit', requireAuth, async (req, res) => {
       })
       .eq('id', userId);
 
-    // 5. Update Task Counter
     await supabaseAdmin
       .from('tasks')
       .update({ completed_slots: (task.completed_slots || 0) + 1 })
@@ -181,7 +173,6 @@ router.post('/submit', requireAuth, async (req, res) => {
 
 /**
  * GET /:id
- * Single task details handler (Must be placed AFTER specific named routes)
  */
 router.get('/:id', requireAuth, async (req, res) => {
   try {
