@@ -63,6 +63,8 @@ app.use(['/api/auth/login', '/auth/login', '/login'], loginHandler);
 // Mounts dashboardHandler across all common dashboard endpoint aliases
 app.use(['/api/user','/api/users','/api/user/dashboard','/dashboard'], userDashboardHandler);
 app.use(['/api/user','/api/users','/api/user/profile','/profile'], userProfileHandler);
+app.use(['/api/vip','/api/vips','/api/vip/upgrade','/upgrade'], vipUpgradeHandler);
+
 
 app.use('/api/user', userDashboardHandler);
 app.use('/api/users', userDashboardHandler);
