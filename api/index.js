@@ -17,6 +17,8 @@ import tasksSubmitHandler from './tasks/submit.js';
 
 import userDashboardHandler from './user/dashboard.js';
 import userProfileHandler from './user/profile.js';
+import bonusRouter from './wallet/bonus.js';
+
 import userReferralsHandler from './user/referrals.js';
 
 import vipUpgradeHandler from './vip/upgrade.js';
@@ -59,11 +61,13 @@ app.use(express.json());
 // Auth
 app.use(['/api/auth/register', '/auth/register', '/register'], registerHandler);
 app.use(['/api/auth/login', '/auth/login', '/login'], loginHandler);
+app.use(['/api/wallet/bonus', '/wallet/bonus', '/bonus'], bonusRouter);
 
 // Mounts dashboardHandler across all common dashboard endpoint aliases
 app.use(['/api/user','/api/users','/api/user/dashboard','/dashboard'], userDashboardHandler);
 app.use(['/api/user','/api/users','/api/user/profile','/profile'], userProfileHandler);
-app.use(['/api/vip','/api/vips','/api/vip/upgrade','/upgrade'], vipUpgradeHandler);
+app.use(['/api/vip','/api/vips','/api/vip/upgrade','/upgrade'], vipUpgradeHandler
+);
 
 
 app.use('/api/user', userDashboardHandler);
