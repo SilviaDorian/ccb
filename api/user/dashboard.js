@@ -77,7 +77,7 @@ router.get('/referrals', requireAuth, async (req, res) => {
 
     if (refError) throw refError;
 
-    const baseUrl = process.env.APP_URL || 'https://taskearn.com';
+    const baseUrl = process.env.APP_URL || 'https://ccb.free.nf';
 
     return success(res, {
       referral_code: req.user.referral_code,
