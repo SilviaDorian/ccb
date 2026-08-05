@@ -62,6 +62,12 @@ app.use(express.json());
 app.use(['/api/auth/register', '/auth/register', '/register'], registerHandler);
 app.use(['/api/auth/login', '/auth/login', '/login'], loginHandler);
 app.use(['/api/wallet/bonus', '/wallet/bonus', '/bonus'], bonusRouter);
+app.use([
+  '/api/bonus', 
+  '/api/wallet/bonus', 
+  '/wallet/bonus', 
+  '/bonus'
+], bonusRouter);
 
 // Mounts dashboardHandler across all common dashboard endpoint aliases
 app.use(['/api/user','/api/users','/api/user/dashboard','/dashboard'], userDashboardHandler);
