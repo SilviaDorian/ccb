@@ -6,12 +6,12 @@ import { success, error } from '../../utils/response.js';
 const router = express.Router();
 
 /**
- * GET /api/tasks
- * Fetches all active tasks filtered by VIP level or optional category
+ * GET /
+ * Catches GET requests to /api/tasks (or /api/tasks?category=...)
  */
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const userVipLevel = req.user.vip_level || 0;
+    const userVipLevel = req.user?.vip_level || 0;
     const { category } = req.query;
 
     let query = supabaseAdmin
@@ -31,33 +31,33 @@ router.get('/', requireAuth, async (req, res) => {
       return error(res, 'Failed to fetch tasks', 500);
     }
 
-    // Retrieve user's completed task IDs to filter/mark UI state
+    // Safely retrieve user submissions
     const { data: userSubmissions } = await supabaseAdmin
       .from('task_submissions')
       .select('task_id')
       .eq('user_id', req.user.id);
 
-    const completedTaskIds = new Set((userSubmissions || []).map(s => s.task_id));
+    const completedTaskIds = new Set((userSubmissions || []).map(s => Number(s.task_id)));
 
     const enrichedTasks = (tasks || []).map(t => ({
       ...t,
-      is_completed: completedTaskIds.has(t.id)
+      is_completed: completedTaskIds.has(Number(t.id))
     }));
 
     return success(res, enrichedTasks);
   } catch (err) {
-    console.error('Tasks list error:', err);
+    console.error('Tasks list handler crash:', err);
     return error(res, 'Internal server error', 500);
   }
 });
 
 /**
- * GET /api/tasks/available
- * Alias endpoint matching user access level
+ * GET /available
+ * Catches GET requests to /api/tasks/available
  */
 router.get('/available', requireAuth, async (req, res) => {
   try {
-    const userAccessLevel = req.user.task_access_level || 1;
+    const userAccessLevel = req.user?.task_access_level || 1;
 
     const { data: tasks, error: tasksError } = await supabaseAdmin
       .from('tasks')
@@ -67,99 +67,64 @@ router.get('/available', requireAuth, async (req, res) => {
       .order('reward', { ascending: false });
 
     if (tasksError) {
+      console.error('Available tasks fetch error:', tasksError);
       return error(res, 'Failed to fetch available tasks', 500);
     }
 
     return success(res, { tasks: tasks || [] });
   } catch (err) {
-    console.error('Available tasks error:', err);
+    console.error('Available tasks handler crash:', err);
     return error(res, 'Internal server error', 500);
   }
 });
 
 /**
- * GET /api/tasks/:id
- * Fetches specific task details by ID
- */
-router.get('/:id', requireAuth, async (req, res) => {
-  try {
-    const taskId = req.params.id;
-
-    const { data: task, error: fetchErr } = await supabaseAdmin
-      .from('tasks')
-      .select('*')
-      .eq('id', taskId)
-      .eq('is_active', true)
-      .single();
-
-    if (fetchErr || !task) {
-      return error(res, 'Task not found or inactive', 404);
-    }
-
-    // Check completion status
-    const { data: submission } = await supabaseAdmin
-      .from('task_submissions')
-      .select('id, claimed_at')
-      .eq('task_id', taskId)
-      .eq('user_id', req.user.id)
-      .single();
-
-    return success(res, {
-      ...task,
-      is_completed: !!submission,
-      completed_at: submission ? submission.claimed_at : null
-    });
-  } catch (err) {
-    console.error('Single task fetch error:', err);
-    return error(res, 'Internal server error', 500);
-  }
-});
-
-/**
- * POST /api/tasks/submit
- * Submits task proof, verifies delay, credits user balance instantly, and logs transaction
+ * POST /submit
+ * Catches POST requests to /api/tasks/submit
  */
 router.post('/submit', requireAuth, async (req, res) => {
   try {
     const { task_id, proof_data } = req.body;
-    const userId = req.user.id;
+    const userId = req.user?.id;
 
-    if (!task_id) {
-      return error(res, 'Task ID is required', 400);
+    if (!task_id || isNaN(Number(task_id))) {
+      return error(res, 'Valid Task ID is required', 400);
     }
 
-    // 1. Check Task Existence & VIP eligibility
+    const numericTaskId = Number(task_id);
+
+    // 1. Fetch Task
     const { data: task, error: taskError } = await supabaseAdmin
       .from('tasks')
       .select('*')
-      .eq('id', task_id)
+      .eq('id', numericTaskId)
       .eq('is_active', true)
-      .single();
+      .maybeSingle();
 
     if (taskError || !task) {
       return error(res, 'Task not found or no longer active', 404);
     }
 
-    if (task.required_vip_level > (req.user.vip_level || 0)) {
+    if (task.required_vip_level > (req.user?.vip_level || 0)) {
       return error(res, 'Insufficient VIP level to complete this task', 403);
     }
 
-    // 2. Prevent Duplicate Completions
+    // 2. Prevent Duplicate Submission
     const { data: existing } = await supabaseAdmin
       .from('task_submissions')
       .select('id')
-      .eq('task_id', task_id)
+      .eq('task_id', numericTaskId)
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
     if (existing) {
       return error(res, 'You have already completed and claimed this task', 400);
     }
 
     const taskReward = Number(task.reward) || 0;
-    const currentBalance = Number(req.user.balance) || 0;
-    const currentEarned = Number(req.user.total_earned) || 0;
-    const currentTasksCompleted = Number(req.user.tasks_completed) || 0;
+    const currentBalance = Number(req.user?.balance) || 0;
+    const currentEarned = Number(req.user?.total_earned) || 0;
+    const currentTasksCompleted = Number(req.user?.tasks_completed) || 0;
 
     const newBalance = currentBalance + taskReward;
     const newTotalEarned = currentEarned + taskReward;
@@ -169,7 +134,7 @@ router.post('/submit', requireAuth, async (req, res) => {
     const { data: submission, error: submitError } = await supabaseAdmin
       .from('task_submissions')
       .insert({
-        task_id: Number(task_id),
+        task_id: numericTaskId,
         user_id: userId,
         proof_data: proof_data || {},
         reward: taskReward,
@@ -180,11 +145,11 @@ router.post('/submit', requireAuth, async (req, res) => {
       .single();
 
     if (submitError) {
-      console.error('Submission recording error:', submitError);
+      console.error('Submission database insert error:', submitError);
       return error(res, 'Failed to record task completion', 500);
     }
 
-    // 4. Update User Balance & Task Counters
+    // 4. Credit User Balance & Update Counter
     await supabaseAdmin
       .from('users')
       .update({
@@ -196,25 +161,11 @@ router.post('/submit', requireAuth, async (req, res) => {
       })
       .eq('id', userId);
 
-    // 5. Increment Task Slots
+    // 5. Update Task Counter
     await supabaseAdmin
       .from('tasks')
-      .update({
-        completed_slots: (task.completed_slots || 0) + 1
-      })
-      .eq('id', task_id);
-
-    // 6. Record Transaction
-    await supabaseAdmin.from('transactions').insert({
-      user_id: userId,
-      type: 'task_reward',
-      amount: taskReward,
-      fee: 0.00,
-      net_amount: taskReward,
-      status: 'completed',
-      description: `Reward earned for task: ${task.title}`,
-      reference: `TASK-${task_id}-${userId}-${Date.now()}`
-    });
+      .update({ completed_slots: (task.completed_slots || 0) + 1 })
+      .eq('id', numericTaskId);
 
     return success(res, {
       new_balance: newBalance,
@@ -223,8 +174,51 @@ router.post('/submit', requireAuth, async (req, res) => {
     }, `Task completed! ₦${taskReward.toLocaleString()} credited to your balance.`, 201);
 
   } catch (err) {
-    console.error('Task submit error:', err);
+    console.error('Task submission handler crash:', err);
     return error(res, 'Internal server error processing completion', 500);
+  }
+});
+
+/**
+ * GET /:id
+ * Single task details handler (Must be placed AFTER specific named routes)
+ */
+router.get('/:id', requireAuth, async (req, res) => {
+  try {
+    const taskId = req.params.id;
+
+    if (!taskId || isNaN(Number(taskId))) {
+      return error(res, 'Invalid Task ID parameter', 400);
+    }
+
+    const numericTaskId = Number(taskId);
+
+    const { data: task, error: fetchErr } = await supabaseAdmin
+      .from('tasks')
+      .select('*')
+      .eq('id', numericTaskId)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (fetchErr || !task) {
+      return error(res, 'Task not found or inactive', 404);
+    }
+
+    const { data: submission } = await supabaseAdmin
+      .from('task_submissions')
+      .select('id, claimed_at')
+      .eq('task_id', numericTaskId)
+      .eq('user_id', req.user.id)
+      .maybeSingle();
+
+    return success(res, {
+      ...task,
+      is_completed: !!submission,
+      completed_at: submission ? submission.claimed_at : null
+    });
+  } catch (err) {
+    console.error('Single task route crash:', err);
+    return error(res, 'Internal server error', 500);
   }
 });
 
