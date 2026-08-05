@@ -7,7 +7,7 @@ import morgan from 'morgan';
 // --- Import TaskEarn Handlers / Routes based on your file structure ---
 import loginHandler from './auth/login.js';
 import registerHandler from './auth/register.js';
-//import tasksRouter from './task/tasks.js'; // Adjust relative path to match your folder structure
+import tasksRouter from './task/tasks.js'; // Adjust relative path to match your folder structure
 //import dashboardRouter from './user/dashboard.js';
 
 import referralStatsHandler from './referrals/stats.js';
@@ -72,7 +72,7 @@ app.use([
 
 
 // Mount tasks router to handle all /api/tasks endpoints
-//app.use('/api/tasks', tasksRouter);
+app.use('/api/tasks', tasksRouter);
 // Mounts dashboardHandler across all common dashboard endpoint aliases
 app.use(['/api/user','/api/users','/api/user/dashboard','/dashboard'], userDashboardHandler);
 app.use(['/api/user','/api/users','/api/user/profile','/profile'], userProfileHandler);
@@ -89,9 +89,9 @@ app.use('/api/users', userDashboardHandler);
 app.use('/api/referrals/stats', referralStatsHandler);
 
 // Tasks
-app.use('/api/tasks/index', tasksIndexHandler);
-app.use('/api/tasks/list', tasksListHandler);
-app.use('/api/tasks/submit', tasksSubmitHandler);
+//app.use('/api/tasks/index', tasksIndexHandler);
+//app.use('/api/tasks/list', tasksListHandler);
+//app.use('/api/tasks/submit', tasksSubmitHandler);
 
 // User
 app.use('/api/user/dashboard', userDashboardHandler);
