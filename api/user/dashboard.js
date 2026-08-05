@@ -6,25 +6,31 @@ import { success, error } from '../../utils/response.js';
 const router = express.Router();
 
 /**
- * GET /api/users/dashboard
- * Fetches user profile stats, recent transactions, and recent task submissions
+ * GET /api/user/dashboard
  */
 router.get('/dashboard', requireAuth, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Run queries in parallel for better performance
-    const [userResult, transactionsResult, recentTasksResult] = await Promise.all([
+    // Parallel fetch using your existing working logic + active tasks
+    const [userResult, tasksResult, transactionsResult, recentTasksResult] = await Promise.all([
       supabaseAdmin
         .from('users')
         .select(`
-          id, uuid, phone, first_name, last_name, balance, pending_balance,
+          id, uuid, phone, email, status, vip_role, first_name, last_name, balance, pending_balance,
           total_earned, total_withdrawn, total_deposited, vip_level, vip_expires_at,
           referral_code, referral_earnings, referral_count, tasks_completed,
           tasks_rejected, success_rate, rating, created_at
         `)
         .eq('id', userId)
         .single(),
+
+      supabaseAdmin
+        .from('tasks')
+        .select('id, title, category, reward, status, created_at')
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(6),
 
       supabaseAdmin
         .from('transactions')
@@ -42,11 +48,10 @@ router.get('/dashboard', requireAuth, async (req, res) => {
     ]);
 
     if (userResult.error) throw userResult.error;
-    if (transactionsResult.error) throw transactionsResult.error;
-    if (recentTasksResult.error) throw recentTasksResult.error;
 
     return success(res, {
       user: userResult.data,
+      tasks: tasksResult.data || [],
       recent_transactions: transactionsResult.data || [],
       recent_tasks: recentTasksResult.data || []
     });
@@ -58,8 +63,7 @@ router.get('/dashboard', requireAuth, async (req, res) => {
 });
 
 /**
- * GET /api/users/referrals
- * Fetches user referral code, link, and list of referred users
+ * GET /api/user/referrals
  */
 router.get('/referrals', requireAuth, async (req, res) => {
   try {
@@ -77,7 +81,7 @@ router.get('/referrals', requireAuth, async (req, res) => {
 
     return success(res, {
       referral_code: req.user.referral_code,
-      referral_link: `${baseUrl}/reg.html?c=${req.user.referral_code}`,
+      referral_link: `${baseUrl}/register.html?c=${req.user.referral_code}`,
       total_referrals: req.user.referral_count || 0,
       referral_earnings: req.user.referral_earnings || 0,
       referrals: referrals || []

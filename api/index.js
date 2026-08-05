@@ -7,6 +7,7 @@ import morgan from 'morgan';
 // --- Import TaskEarn Handlers / Routes based on your file structure ---
 import loginHandler from './auth/login.js';
 import registerHandler from './auth/register.js';
+//import dashboardRouter from './user/dashboard.js';
 
 import referralStatsHandler from './referrals/stats.js';
 
@@ -58,6 +59,12 @@ app.use(express.json());
 // Auth
 app.use(['/api/auth/register', '/auth/register', '/register'], registerHandler);
 app.use(['/api/auth/login', '/auth/login', '/login'], loginHandler);
+
+// Mounts dashboardHandler across all common dashboard endpoint aliases
+app.use(['/api/user','/api/users','/api/user/dashboard','/dashboard'], userDashboardHandler);
+app.use('/api/user', userDashboardHandler);
+app.use('/api/users', userDashboardHandler);
+
 
 
 // Referrals
