@@ -39,6 +39,7 @@ router.post('/upgrade', requireAuth, async (req, res) => {
     }
 
     const newBalance = req.user.balance - plan.price;
+    const nowIso = new Date().toISOString();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + plan.duration_days);
 
@@ -49,9 +50,10 @@ router.post('/upgrade', requireAuth, async (req, res) => {
         vip_level: plan.level,
         vip_role: plan.name,
         vip_expires_at: expiresAt.toISOString(),
-        vip_purchased_at: new Date().toISOString(),
+        vip_purchased_at: nowIso,
+        last_bonus_claimed_at: nowIso, // Resets daily bonus cycle upon tier upgrade
         task_access_level: plan.task_access_level,
-        updated_at: new Date().toISOString()
+        updated_at: nowIso
       })
       .eq('id', userId)
       .select('vip_level, vip_role, vip_expires_at, balance, task_access_level')
@@ -66,6 +68,8 @@ router.post('/upgrade', requireAuth, async (req, res) => {
       user_id: userId,
       type: 'vip_purchase',
       amount: plan.price,
+      fee: 0.00,
+      net_amount: plan.price,
       status: 'completed',
       description: `Upgraded to ${plan.name} (Level ${plan.level})`,
       reference: `VIP-${plan.level}-${Date.now()}`

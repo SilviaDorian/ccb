@@ -1,41 +1,44 @@
 import express from 'express';
-import { requireAuth } from '../middleware/auth.js';
-import { supabaseAdmin } from '../lib/supabase.js';
-import { success, error } from '../utils/response.js';
+import { requireAuth } from '../../middleware/auth.js';
+import { supabaseAdmin } from '../../lib/supabase.js';
+import { success, error } from '../../utils/response.js';
 
 const router = express.Router();
 
-// VIP Daily Bonus Rates matching system config
 export const VIP_DAILY_BONUS = {
-  0: 0,       // Free
-  1: 800,     // Beginner
-  2: 1400,    // Novice
-  3: 2000,    // Intermediate
-  4: 5000,    // Advanced
-  5: 10000,   // Expert
-  6: 20000,   // Master
-  7: 55000    // Legend
+  0: 0,
+  1: 800,
+  2: 1400,
+  3: 2000,
+  4: 5000,
+  5: 10000,
+  6: 20000,
+  7: 55000
 };
 
 /**
-  Calculate cumulative unpaid days since last claim or purchase date
+ * Calculates cumulative unpaid days safely
  */
 function calculateUnclaimedDays(user) {
-  if (!user.vip_level || user.vip_level === 0) return 0;
+  if (!user || !user.vip_level || Number(user.vip_level) === 0) {
+    return 0;
+  }
 
   const now = new Date();
-  
-  // Check if VIP membership is expired
+
   if (user.vip_expires_at && new Date(user.vip_expires_at) < now) {
     return 0;
   }
 
-  // Base starting point is either the last claim time or VIP purchase time
-  const startTime = user.last_bonus_claimed_at 
-    ? new Date(user.last_bonus_claimed_at) 
-    : (user.vip_purchased_at ? new Date(user.vip_purchased_at) : null);
+  const rawStartTime = user.last_bonus_claimed_at || user.vip_purchased_at;
+  if (!rawStartTime) {
+    return 0;
+  }
 
-  if (!startTime) return 0;
+  const startTime = new Date(rawStartTime);
+  if (isNaN(startTime.getTime())) {
+    return 0;
+  }
 
   const diffInMs = now.getTime() - startTime.getTime();
   const elapsedDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
@@ -43,7 +46,7 @@ function calculateUnclaimedDays(user) {
   return elapsedDays > 0 ? elapsedDays : 0;
 }
 
-// GET /api/bonus/status - Retrieve pending cumulative bonus details
+// GET /api/bonus/status
 router.get('/status', requireAuth, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -72,12 +75,12 @@ router.get('/status', requireAuth, async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Bonus status calculation error:', err);
-    return error(res, 'Failed to compute bonus status', 500);
+    console.error('Bonus status error:', err);
+    return error(res, 'Internal server error calculating bonus', 500);
   }
 });
 
-// POST /api/bonus/claim - Claim cumulative pending daily bonus
+// POST /api/bonus/claim
 router.post('/claim', requireAuth, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -92,8 +95,8 @@ router.post('/claim', requireAuth, async (req, res) => {
       return error(res, 'User record not found', 404);
     }
 
-    if (!user.vip_level || user.vip_level === 0) {
-      return error(res, 'You need an active VIP level to claim daily bonuses.', 400);
+    if (!user.vip_level || Number(user.vip_level) === 0) {
+      return error(res, 'Active VIP membership required to claim daily bonus.', 400);
     }
 
     const dailyRate = VIP_DAILY_BONUS[user.vip_level] || 0;
@@ -101,34 +104,32 @@ router.post('/claim', requireAuth, async (req, res) => {
     const bonusToClaim = unclaimedDays * dailyRate;
 
     if (unclaimedDays <= 0 || bonusToClaim <= 0) {
-      return error(res, 'No pending daily bonus available to claim today.', 400);
+      return error(res, 'No pending daily bonus available to claim.', 400);
     }
 
     const currentBalance = Number(user.balance) || 0;
     const currentTotalEarned = Number(user.total_earned) || 0;
     const newBalance = currentBalance + bonusToClaim;
     const newTotalEarned = currentTotalEarned + bonusToClaim;
-    const claimTime = new Date().toISOString();
+    const nowIso = new Date().toISOString();
 
-    // 1. Update user balance & claim timestamp
     const { data: updatedUser, error: updateErr } = await supabaseAdmin
       .from('users')
       .update({
         balance: newBalance,
         total_earned: newTotalEarned,
-        last_bonus_claimed_at: claimTime,
-        updated_at: claimTime
+        last_bonus_claimed_at: nowIso,
+        updated_at: nowIso
       })
       .eq('id', userId)
       .select('balance, total_earned, last_bonus_claimed_at')
       .single();
 
     if (updateErr) {
-      console.error('Failed to update balance during bonus claim:', updateErr);
-      return error(res, 'Failed to process bonus claim.', 500);
+      console.error('Database error updating bonus:', updateErr);
+      return error(res, 'Failed to update user balance for bonus claim.', 500);
     }
 
-    // 2. Insert record in transactions table
     await supabaseAdmin.from('transactions').insert({
       user_id: userId,
       type: 'daily_bonus',
@@ -136,13 +137,8 @@ router.post('/claim', requireAuth, async (req, res) => {
       fee: 0.00,
       net_amount: bonusToClaim,
       status: 'completed',
-      description: `Claimed ${unclaimedDays} day(s) VIP ${user.vip_level} daily bonus`,
-      reference: `BONUS-${userId}-${Date.now()}`,
-      metadata: {
-        vip_level: user.vip_level,
-        days_claimed: unclaimedDays,
-        daily_rate: dailyRate
-      }
+      description: `Claimed ${unclaimedDays} day(s) VIP Level ${user.vip_level} daily bonus`,
+      reference: `BONUS-${userId}-${Date.now()}`
     });
 
     return success(res, {
@@ -154,7 +150,7 @@ router.post('/claim', requireAuth, async (req, res) => {
 
   } catch (err) {
     console.error('Bonus claim error:', err);
-    return error(res, 'Internal server error processing claim.', 500);
+    return error(res, 'Internal server error processing claim', 500);
   }
 });
 
