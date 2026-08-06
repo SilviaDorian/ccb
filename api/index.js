@@ -81,7 +81,7 @@ app.use('/api/videos', videosRouter);
 app.use('/api/books', booksRouter);
 app.use('/api/websites', websitesRouter);
 app.use('/api/apps', appsRouter);
-app.use('/api/apps', productsRouter);
+app.use('/api/products', productsRouter);
 
 
 // Mounts dashboardHandler across all common dashboard endpoint aliases
