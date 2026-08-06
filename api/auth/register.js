@@ -10,6 +10,18 @@ import { success, error } from '../../utils/response.js';
 
 const router = express.Router();
 
+// VIP Referral Reward Map (Determined by Referrer's VIP Level)
+const REFERRAL_REWARDS = {
+  0: 300,   // Level 0 -> ₦300
+  1: 500,   // VIP 1   -> ₦500
+  2: 700,   // VIP 2   -> ₦700
+  3: 1000,  // VIP 3   -> ₦1,000
+  4: 1500,  // VIP 4   -> ₦1,500
+  5: 2500,  // VIP 5   -> ₦2,500
+  6: 5000,  // VIP 6   -> ₦5,000
+  7: 10000  // VIP 7   -> ₦10,000
+};
+
 /**
  * POST /api/auth/register (or mounted route root '/')
  */
@@ -71,19 +83,19 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // 3. Handle Optional Referral Code
-    let referredBy = null;
+    // 3. Handle Optional Referral Code & Fetch Referrer VIP Data
+    let referrerUser = null;
     const activeRefCode = (referral_code || referrerCode || '').trim();
 
     if (activeRefCode) {
       const { data: referrer, error: refErr } = await supabaseAdmin
         .from('users')
-        .select('id')
+        .select('id, balance, total_earned, referral_earnings, referral_count, vip_level')
         .eq('referral_code', activeRefCode.toUpperCase())
         .maybeSingle();
 
       if (refErr) console.error('Referrer lookup error:', refErr);
-      if (referrer) referredBy = referrer.id;
+      if (referrer) referrerUser = referrer;
     }
 
     // 4. Generate Hashes & Identifiers
@@ -108,7 +120,7 @@ router.post('/', async (req, res) => {
         last_name: computedLastName,
         password_hash: passwordHash,
         referral_code: userReferralCode,
-        referred_by: referredBy,
+        referred_by: referrerUser ? referrerUser.id : null,
         status: 'active',
         is_verified: false,
         balance: WELCOME_BONUS,
@@ -125,22 +137,62 @@ router.post('/', async (req, res) => {
       return error(res, `Failed to create account: ${insertError.message || 'Database error'}`, 500);
     }
 
-    // 7. Increment Referrer Count (if applicable)
-    if (referredBy) {
-      await supabaseAdmin.rpc('increment_referral_count', { user_id: referredBy });
+    // 7. Process Referrer Reward Payout & Metrics Update
+    if (referrerUser) {
+      try {
+        const referrerVip = Number(referrerUser.vip_level || 0);
+        const bonusAmount = REFERRAL_REWARDS[referrerVip] !== undefined ? REFERRAL_REWARDS[referrerVip] : REFERRAL_REWARDS[0];
+
+        const currentBalance = Number(referrerUser.balance || 0);
+        const currentTotalEarned = Number(referrerUser.total_earned || 0);
+        const currentRefEarnings = Number(referrerUser.referral_earnings || 0);
+        const currentRefCount = Number(referrerUser.referral_count || 0);
+
+        // Update Referrer User Record
+        const { error: updateRefErr } = await supabaseAdmin
+          .from('users')
+          .update({
+            balance: currentBalance + bonusAmount,
+            total_earned: currentTotalEarned + bonusAmount,
+            referral_earnings: currentRefEarnings + bonusAmount,
+            referral_count: currentRefCount + 1,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', referrerUser.id);
+
+        if (updateRefErr) {
+          console.error('Referrer update error:', updateRefErr);
+        } else {
+          // Log Referral Transaction Entry for Referrer
+          await supabaseAdmin.from('transactions').insert({
+            user_id: referrerUser.id,
+            amount: bonusAmount,
+            fee: 0.00,
+            net_amount: bonusAmount,
+            type: 'referral_bonus',
+            status: 'completed',
+            description: `Referral bonus earned for recruiting ${computedFirstName || 'a user'} (VIP Level ${referrerVip} rate)`,
+            reference: `REF-${referrerUser.id}-${Date.now()}`
+          });
+        }
+      } catch (refBonusErr) {
+        console.error('Referral payout processing error (non-fatal):', refBonusErr.message);
+      }
     }
 
-    // 8. Log Initial Bonus Transaction (Optional - records transaction history entry if your DB uses a transactions table)
+    // 8. Log Initial Welcome Bonus Transaction for New User
     try {
       await supabaseAdmin.from('transactions').insert({
         user_id: newUser.id,
         amount: WELCOME_BONUS,
+        fee: 0.00,
+        net_amount: WELCOME_BONUS,
         type: 'welcome_bonus',
         status: 'completed',
-        description: 'Welcome Registration Bonus'
+        description: 'Welcome Registration Bonus',
+        reference: `WELCOME-${newUser.id}-${Date.now()}`
       });
     } catch (txErr) {
-      // Non-blocking catch in case transactions table structure differs
       console.warn('Transaction log warning (non-fatal):', txErr.message);
     }
 
