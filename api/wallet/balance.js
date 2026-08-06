@@ -8,7 +8,7 @@ const router = express.Router();
  * GET /api/wallet/balance
  * Returns the current authenticated user's wallet balances
  */
-router.get('/balance', requireAuth, async (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   try {
     const { balance, pending_balance, total_earned, total_withdrawn, total_deposited, currency } = req.user;
 

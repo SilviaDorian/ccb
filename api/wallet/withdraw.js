@@ -60,7 +60,7 @@ router.post('/verify-code', requireAuth, async (req, res) => {
  * POST /api/wallet/withdraw
  * Main withdrawal initiation route (Handles both VIP and Non-VIP)
  */
-router.post('/withdraw', requireAuth, async (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
   try {
     const { amount, bank_account_number, bank_name, account_name, withdrawal_code } = req.body;
     const userId = req.user.id;
