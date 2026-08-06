@@ -1,15 +1,13 @@
 import express from 'express';
 import axios from 'axios';
-import { requireAuth } from '../middleware/auth.js';
-import { supabaseAdmin } from '../lib/supabase.js';
-import { success, error } from '../utils/response.js';
+import { requireAuth } from '../../middleware/auth.js';
+import { supabaseAdmin } from '../../lib/supabase.js';
+import { success, error } from '../../utils/response.js';
 
 const router = express.Router();
 
-const PEXELS_API_KEY = process.env.PEXELS_API_KEY;
 const PEXELS_BASE_URL = 'https://api.pexels.com/videos';
 
-// Preset categories for filtering
 const CATEGORY_QUERIES = {
   all: 'popular clips',
   trailers: 'cinematic movie trailer action',
@@ -19,21 +17,21 @@ const CATEGORY_QUERIES = {
 };
 
 /**
- * GET /api/videos
- * Fetches video tasks from Pexels API with reward metadata and completion state
+ * GET /api/videos (or mounted root)
  */
 router.get('/', requireAuth, async (req, res) => {
   try {
     const { category = 'all', page = 1 } = req.query;
     const queryTerm = CATEGORY_QUERIES[category] || CATEGORY_QUERIES.all;
+    const apiKey = process.env.PEXELS_API_KEY;
 
-    if (!PEXELS_API_KEY) {
-      return error(res, 'Pexels API Key is missing in environment variables', 500);
+    if (!apiKey) {
+      console.error('PEXELS_API_KEY is not defined in environment variables.');
+      return error(res, 'Pexels API key missing on server', 500);
     }
 
-    // Request Pexels videos
     const pexelsRes = await axios.get(`${PEXELS_BASE_URL}/search`, {
-      headers: { Authorization: PEXELS_API_KEY },
+      headers: { Authorization: apiKey },
       params: {
         query: queryTerm,
         per_page: 15,
@@ -42,9 +40,8 @@ router.get('/', requireAuth, async (req, res) => {
       }
     });
 
-    const rawVideos = pexelsRes.data.videos || [];
+    const rawVideos = pexelsRes.data?.videos || [];
 
-    // Fetch user's completed video tasks from Supabase
     const { data: userSubmissions } = await supabaseAdmin
       .from('task_submissions')
       .select('task_id')
@@ -52,29 +49,25 @@ router.get('/', requireAuth, async (req, res) => {
 
     const completedTaskIds = new Set((userSubmissions || []).map(s => String(s.task_id)));
 
-    // Transform Pexels objects into Cream Cake Task Objects
     const tasks = rawVideos.map(vid => {
-      // Find suitable video stream (prefer HD 720p or SD)
-      const videoStream = vid.video_files.find(f => f.quality === 'hd' && f.width >= 1280) 
-        || vid.video_files[0];
+      const videoStream = vid.video_files?.find(f => f.quality === 'hd' && f.width >= 1280) 
+        || vid.video_files?.[0];
 
-      // Calculate task reward based on video duration
       const durationSeconds = vid.duration || 30;
-      const baseReward = 200;
-      const rewardAmount = Math.min(500, baseReward + Math.floor(durationSeconds * 3));
+      const rewardAmount = Math.min(500, 200 + Math.floor(durationSeconds * 3));
       const taskId = `vid_${vid.id}`;
 
       return {
         id: taskId,
         pexels_id: vid.id,
-        title: `Watch & Rate: ${vid.user.name}'s Short Clip`,
+        title: `Watch & Rate: ${vid.user?.name || 'Creator'}'s Video`,
         category: category === 'all' ? 'video' : category,
         duration_seconds: durationSeconds,
         reward: rewardAmount,
         thumbnail: vid.image,
         video_url: videoStream ? videoStream.link : '',
-        author: vid.user.name,
-        author_url: vid.user.url,
+        author: vid.user?.name || 'Pexels Creator',
+        author_url: vid.user?.url || '#',
         is_completed: completedTaskIds.has(taskId)
       };
     });
@@ -82,7 +75,7 @@ router.get('/', requireAuth, async (req, res) => {
     return success(res, {
       tasks,
       page: Number(page),
-      total_results: pexelsRes.data.total_results || 0
+      total_results: pexelsRes.data?.total_results || 0
     });
 
   } catch (err) {
@@ -93,25 +86,26 @@ router.get('/', requireAuth, async (req, res) => {
 
 /**
  * GET /api/videos/:id
- * Fetches single video task details by ID
  */
 router.get('/:id', requireAuth, async (req, res) => {
   try {
+    const apiKey = process.env.PEXELS_API_KEY;
+    if (!apiKey) return error(res, 'Server configuration error', 500);
+
     const videoId = req.params.id.replace('vid_', '');
 
     const pexelsRes = await axios.get(`${PEXELS_BASE_URL}/videos/${videoId}`, {
-      headers: { Authorization: PEXELS_API_KEY }
+      headers: { Authorization: apiKey }
     });
 
     const vid = pexelsRes.data;
-    const videoStream = vid.video_files.find(f => f.quality === 'hd' && f.width >= 1280) 
-      || vid.video_files[0];
+    const videoStream = vid.video_files?.find(f => f.quality === 'hd' && f.width >= 1280) 
+      || vid.video_files?.[0];
 
     const taskId = `vid_${vid.id}`;
     const durationSeconds = vid.duration || 30;
     const rewardAmount = Math.min(500, 200 + Math.floor(durationSeconds * 3));
 
-    // Check completion status
     const { data: submission } = await supabaseAdmin
       .from('task_submissions')
       .select('id, claimed_at')
@@ -122,29 +116,28 @@ router.get('/:id', requireAuth, async (req, res) => {
     return success(res, {
       id: taskId,
       pexels_id: vid.id,
-      title: `Watch & Rate: ${vid.user.name}'s Short Clip`,
+      title: `Watch & Rate: ${vid.user?.name || 'Creator'}'s Video`,
       duration_seconds: durationSeconds,
       reward: rewardAmount,
       thumbnail: vid.image,
       video_url: videoStream ? videoStream.link : '',
-      author: vid.user.name,
+      author: vid.user?.name || 'Pexels Creator',
       is_completed: !!submission
     });
 
   } catch (err) {
-    console.error('Single video fetch error:', err.message);
+    console.error('Single video fetch error:', err.response?.data || err.message);
     return error(res, 'Failed to fetch video details', 500);
   }
 });
 
 /**
  * POST /api/videos/submit
- * Submits video rating, marks task complete, and adds reward to user balance
  */
 router.post('/submit', requireAuth, async (req, res) => {
   try {
     const { task_id, rating, review_text, reward_amount } = req.body;
-    const userId = req.user.id;
+    const userId = req.user?.id;
 
     if (!task_id) {
       return error(res, 'Task ID is required', 400);
@@ -154,7 +147,6 @@ router.post('/submit', requireAuth, async (req, res) => {
       return error(res, 'Please provide a valid rating between 1 and 5 stars', 400);
     }
 
-    // 1. Check for Duplicate Submission
     const { data: existing } = await supabaseAdmin
       .from('task_submissions')
       .select('id')
@@ -167,15 +159,14 @@ router.post('/submit', requireAuth, async (req, res) => {
     }
 
     const taskReward = Number(reward_amount) || 200;
-    const currentBalance = Number(req.user.balance) || 0;
-    const currentEarned = Number(req.user.total_earned) || 0;
-    const currentTasksCompleted = Number(req.user.tasks_completed) || 0;
+    const currentBalance = Number(req.user?.balance) || 0;
+    const currentEarned = Number(req.user?.total_earned) || 0;
+    const currentTasksCompleted = Number(req.user?.tasks_completed) || 0;
 
     const newBalance = currentBalance + taskReward;
     const newTotalEarned = currentEarned + taskReward;
     const nowIso = new Date().toISOString();
 
-    // 2. Insert Submission Record
     const { data: submission, error: submitErr } = await supabaseAdmin
       .from('task_submissions')
       .insert({
@@ -190,11 +181,10 @@ router.post('/submit', requireAuth, async (req, res) => {
       .single();
 
     if (submitErr) {
-      console.error('Video submission error:', submitErr);
+      console.error('Video submission DB error:', submitErr);
       return error(res, 'Failed to log video rating', 500);
     }
 
-    // 3. Update User Balance & Task Counter
     await supabaseAdmin
       .from('users')
       .update({
@@ -206,7 +196,6 @@ router.post('/submit', requireAuth, async (req, res) => {
       })
       .eq('id', userId);
 
-    // 4. Log Transaction
     await supabaseAdmin.from('transactions').insert({
       user_id: userId,
       type: 'task_reward',
@@ -214,7 +203,7 @@ router.post('/submit', requireAuth, async (req, res) => {
       fee: 0.00,
       net_amount: taskReward,
       status: 'completed',
-      description: `Video task bonus claimed for ${task_id}`,
+      description: `Video bonus claimed for ${task_id}`,
       reference: `VID-${Date.now()}`
     });
 
@@ -225,8 +214,8 @@ router.post('/submit', requireAuth, async (req, res) => {
     }, `Video rating submitted! ₦${taskReward.toLocaleString()} added to your wallet.`, 201);
 
   } catch (err) {
-    console.error('Video submit endpoint crash:', err);
-    return error(res, 'Internal server error processing video reward', 500);
+    console.error('Video submit handler crash:', err);
+    return error(res, 'Internal server error', 500);
   }
 });
 
