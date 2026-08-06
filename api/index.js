@@ -19,11 +19,11 @@ import referralStatsHandler from './referrals/stats.js';
 import userDashboardHandler from './user/dashboard.js';
 import userProfileHandler from './user/profile.js';
 import bonusRouter from './wallet/bonus.js';
+import videosRouter from './task/videos.js'; 
 
 import userReferralsHandler from './user/referrals.js';
 
 import vipUpgradeHandler from './vip/upgrade.js';
-
 import walletBalanceHandler from './wallet/balance.js';
 import walletDepositHandler from './wallet/deposit.js';
 import walletWithdrawHandler from './wallet/withdraw.js';
@@ -76,8 +76,9 @@ app.use('/api/tasks', tasksRouter);
 // Mounts dashboardHandler across all common dashboard endpoint aliases
 app.use(['/api/user','/api/users','/api/user/dashboard','/dashboard'], userDashboardHandler);
 app.use(['/api/user','/api/users','/api/user/profile','/profile'], userProfileHandler);
-app.use(['/api/vip','/api/vips','/api/vip/upgrade','/upgrade'], vipUpgradeHandler
-);
+app.use(['/api/vip','/api/vips','/api/vip/upgrade','/upgrade'], vipUpgradeHandler);
+app.use('/api/videos', videosRouter);
+
 
 
 app.use('/api/user', userDashboardHandler);
