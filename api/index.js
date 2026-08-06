@@ -20,6 +20,8 @@ import userDashboardHandler from './user/dashboard.js';
 import userProfileHandler from './user/profile.js';
 import bonusRouter from './wallet/bonus.js';
 import videosRouter from './task/videos.js'; 
+import booksRouter from './task/books.js'; 
+
 
 import userReferralsHandler from './user/referrals.js';
 
@@ -74,6 +76,8 @@ app.use([
 // Mount tasks router to handle all /api/tasks endpoints
 app.use('/api/tasks', tasksRouter);
 app.use('/api/videos', videosRouter);
+app.use('/api/books', booksRouter);
+
 // Mounts dashboardHandler across all common dashboard endpoint aliases
 app.use(['/api/user','/api/users','/api/user/dashboard','/dashboard'], userDashboardHandler);
 app.use(['/api/user','/api/users','/api/user/profile','/profile'], userProfileHandler);
