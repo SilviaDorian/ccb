@@ -73,11 +73,17 @@ router.get('/', requireAuth, async (req, res) => {
     }
 
     const startIndex = (Number(page) - 1) * Number(limit);
-    const paginated = filtered.slice(startIndex, startIndex + Number(limit)).map(prod => ({
-      ...prod,
-      image_url: `https://api.dicebear.com/7.x/shapes/svg?seed=${prod.id}`,
-      is_completed: completedIds.has(prod.id)
-    }));
+    const paginated = filtered.slice(startIndex, startIndex + Number(limit)).map(prod => {
+      const isCoke = prod.category === 'cocacola';
+      const bgColor = isCoke ? 'F40009' : '161B22';
+      const textColor = 'FFFFFF';
+
+      return {
+        ...prod,
+        image_url: `https://placehold.co/300x300/${bgColor}/${textColor}?text=${encodeURIComponent(prod.name)}`,
+        is_completed: completedIds.has(prod.id)
+      };
+    });
 
     return success(res, {
       tasks: paginated,
