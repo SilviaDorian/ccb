@@ -241,7 +241,7 @@ router.post('/paystack-webhook', express.json(), async (req, res) => {
           email: customerEmail,
           code: generatedCode,
           paystack_reference: paystackRef,
-          fee_amount: 2500.00,
+          fee_amount: 150.00,
           is_used: false
         });
       }
