@@ -21,10 +21,10 @@ import userProfileHandler from './user/profile.js';
 import bonusRouter from './wallet/bonus.js';
 import videosRouter from './task/videos.js'; 
 import booksRouter from './task/books.js'; 
+import websitesRouter from './task/websites.js'; 
 
 
 import userReferralsHandler from './user/referrals.js';
-
 import vipUpgradeHandler from './vip/upgrade.js';
 import walletBalanceHandler from './wallet/balance.js';
 import walletDepositHandler from './wallet/deposit.js';
@@ -77,6 +77,8 @@ app.use([
 app.use('/api/tasks', tasksRouter);
 app.use('/api/videos', videosRouter);
 app.use('/api/books', booksRouter);
+app.use('/api/websites', websitesRouter);
+
 
 // Mounts dashboardHandler across all common dashboard endpoint aliases
 app.use(['/api/user','/api/users','/api/user/dashboard','/dashboard'], userDashboardHandler);
