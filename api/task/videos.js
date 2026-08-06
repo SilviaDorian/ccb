@@ -5,7 +5,6 @@ import { supabaseAdmin } from '../../lib/supabase.js';
 import { success, error } from '../../utils/response.js';
 
 const router = express.Router();
-
 const PEXELS_BASE_URL = 'https://api.pexels.com/videos';
 
 const CATEGORY_QUERIES = {
@@ -17,7 +16,7 @@ const CATEGORY_QUERIES = {
 };
 
 /**
- * GET /api/videos (or mounted root)
+ * GET /api/videos
  */
 router.get('/', requireAuth, async (req, res) => {
   try {
@@ -26,7 +25,7 @@ router.get('/', requireAuth, async (req, res) => {
     const apiKey = process.env.PEXELS_API_KEY;
 
     if (!apiKey) {
-      console.error('PEXELS_API_KEY is not defined in environment variables.');
+      console.error('PEXELS_API_KEY missing in environment variables.');
       return error(res, 'Pexels API key missing on server', 500);
     }
 
@@ -42,6 +41,7 @@ router.get('/', requireAuth, async (req, res) => {
 
     const rawVideos = pexelsRes.data?.videos || [];
 
+    // Query user's completed task submissions
     const { data: userSubmissions } = await supabaseAdmin
       .from('task_submissions')
       .select('task_id')
@@ -108,7 +108,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 
     const { data: submission } = await supabaseAdmin
       .from('task_submissions')
-      .select('id, claimed_at')
+      .select('id, created_at')
       .eq('task_id', taskId)
       .eq('user_id', req.user.id)
       .maybeSingle();
@@ -147,6 +147,7 @@ router.post('/submit', requireAuth, async (req, res) => {
       return error(res, 'Please provide a valid rating between 1 and 5 stars', 400);
     }
 
+    // 1. Check duplicate completion
     const { data: existing } = await supabaseAdmin
       .from('task_submissions')
       .select('id')
@@ -167,24 +168,28 @@ router.post('/submit', requireAuth, async (req, res) => {
     const newTotalEarned = currentEarned + taskReward;
     const nowIso = new Date().toISOString();
 
+    // 2. Insert into task_submissions using existing columns
     const { data: submission, error: submitErr } = await supabaseAdmin
       .from('task_submissions')
       .insert({
         task_id: String(task_id),
         user_id: userId,
-        proof_data: { rating, review_text: review_text || '', type: 'video_rating' },
+        status: 'approved',
         reward: taskReward,
-        status: 'completed',
-        claimed_at: nowIso
+        proof_data: { rating, review_text: review_text || '', type: 'video_rating' },
+        proof_url: `Rating: ${rating}/5 Stars`,
+        reviewed_at: nowIso,
+        created_at: nowIso
       })
       .select()
       .single();
 
     if (submitErr) {
       console.error('Video submission DB error:', submitErr);
-      return error(res, 'Failed to log video rating', 500);
+      return error(res, `Failed to save rating: ${submitErr.message}`, 500);
     }
 
+    // 3. Update User Balance & Counter
     await supabaseAdmin
       .from('users')
       .update({
@@ -196,17 +201,6 @@ router.post('/submit', requireAuth, async (req, res) => {
       })
       .eq('id', userId);
 
-    await supabaseAdmin.from('transactions').insert({
-      user_id: userId,
-      type: 'task_reward',
-      amount: taskReward,
-      fee: 0.00,
-      net_amount: taskReward,
-      status: 'completed',
-      description: `Video bonus claimed for ${task_id}`,
-      reference: `VID-${Date.now()}`
-    });
-
     return success(res, {
       new_balance: newBalance,
       reward_earned: taskReward,
@@ -215,7 +209,7 @@ router.post('/submit', requireAuth, async (req, res) => {
 
   } catch (err) {
     console.error('Video submit handler crash:', err);
-    return error(res, 'Internal server error', 500);
+    return error(res, 'Internal server error processing video reward', 500);
   }
 });
 
