@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'crypto';
 import { requireAuth } from '../../middleware/auth.js';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { success, error } from '../../utils/response.js';
@@ -6,155 +7,250 @@ import { success, error } from '../../utils/response.js';
 const router = express.Router();
 
 /**
- * GET /api/wallet/balance
- * Returns the current authenticated user's wallet balances
+ * GET /api/wallet/withdraw/eligibility
+ * Check if the user is VIP or requires a code before navigating to withdraw.html
  */
-router.get('/balance', requireAuth, async (req, res) => {
+router.get('/eligibility', requireAuth, async (req, res) => {
   try {
-    const { balance, pending_balance, total_earned, total_withdrawn, total_deposited, currency } = req.user;
-
+    const isVip = Number(req.user.vip_level || 0) > 0;
+    
     return success(res, {
-      balance,
-      pending_balance,
-      total_earned,
-      total_withdrawn,
-      total_deposited,
-      currency: currency || 'NGN'
+      vip_level: req.user.vip_level,
+      is_vip: isVip,
+      balance: req.user.balance,
+      requires_code: !isVip
     });
   } catch (err) {
-    console.error('Balance error:', err);
-    return error(res, 'Internal server error', 500);
+    return error(res, 'Failed to verify eligibility', 500);
   }
 });
 
 /**
- * POST /api/wallet/deposit
- * Process deposit and top up user wallet balance
+ * POST /api/wallet/verify-code
+ * Validates a non-VIP user's code BEFORE opening the withdrawal form
  */
-router.post('/deposit', requireAuth, async (req, res) => {
+router.post('/verify-code', requireAuth, async (req, res) => {
   try {
-    const { amount, payment_reference } = req.body;
-    const userId = req.user.id;
-
-    if (!amount || amount <= 0) {
-      return error(res, 'Invalid amount', 400);
+    const { code } = req.body;
+    if (!code || !code.trim()) {
+      return error(res, 'Withdrawal code is required', 400);
     }
 
-    // Create transaction record
-    const { data: transaction, error: txError } = await supabaseAdmin
-      .from('transactions')
-      .insert({
-        user_id: userId,
-        type: 'deposit',
-        amount: parseFloat(amount),
-        status: 'completed',
-        description: 'Wallet deposit',
-        reference: payment_reference || `DEP-${Date.now()}`,
-        metadata: { source: 'manual_or_gateway' }
-      })
-      .select()
+    const { data: codeRecord, error: codeErr } = await supabaseAdmin
+      .from('withdrawal_codes')
+      .select('id, is_used, user_id')
+      .eq('code', code.trim().toUpperCase())
       .single();
 
-    if (txError) {
-      console.error(txError);
-      return error(res, 'Failed to record transaction', 500);
+    if (codeErr || !codeRecord) {
+      return error(res, 'Invalid withdrawal code. Please check and try again.', 404);
     }
 
-    // Update user balance
-    const { data: updatedUser, error: updateError } = await supabaseAdmin
-      .from('users')
-      .update({
-        balance: req.user.balance + parseFloat(amount),
-        total_deposited: (req.user.total_deposited || 0) + parseFloat(amount),
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', userId)
-      .select('balance, total_deposited')
-      .single();
-
-    if (updateError) {
-      return error(res, 'Failed to update balance', 500);
+    if (codeRecord.is_used) {
+      return error(res, 'This withdrawal code has already been used.', 400);
     }
 
-    return success(res, {
-      transaction,
-      new_balance: updatedUser.balance
-    }, 'Deposit successful');
-
+    return success(res, { valid: true }, 'Code verified successfully');
   } catch (err) {
-    console.error('Deposit error:', err);
-    return error(res, 'Internal server error', 500);
+    return error(res, 'Internal server error validating code', 500);
   }
 });
 
 /**
  * POST /api/wallet/withdraw
- * Initiate a withdrawal request and deduct balance
+ * Main withdrawal initiation route (Handles both VIP and Non-VIP)
  */
 router.post('/withdraw', requireAuth, async (req, res) => {
   try {
-    const { amount, bank_account_number, bank_name, account_name } = req.body;
+    const { amount, bank_account_number, bank_name, account_name, withdrawal_code } = req.body;
     const userId = req.user.id;
-    const minWithdrawal = 1500; // NGN
-    const feePercent = 0.05; // 5% fee
+    const vipLevel = Number(req.user.vip_level || 0);
+    const minWithdrawal = 1500;
+    const feePercent = 0.05;
 
-    if (!amount || amount < minWithdrawal) {
-      return error(res, `Minimum withdrawal is ₦${minWithdrawal}`, 400);
+    const withdrawAmount = parseFloat(amount);
+    if (!withdrawAmount || withdrawAmount < minWithdrawal) {
+      return error(res, `Minimum withdrawal amount is ₦${minWithdrawal.toLocaleString()}`, 400);
     }
 
-    if (amount > req.user.balance) {
-      return error(res, 'Insufficient balance', 400);
+    if (withdrawAmount > req.user.balance) {
+      return error(res, 'Insufficient wallet balance', 400);
     }
 
-    if (!bank_account_number || !bank_name) {
-      return error(res, 'Bank details required', 400);
+    if (!bank_account_number || !bank_name || !account_name) {
+      return error(res, 'Complete bank account details are required', 400);
     }
 
-    const fee = amount * feePercent;
-    const netAmount = amount - fee;
+    let codeRecord = null;
 
-    // Create pending transaction
+    // Non-VIP Validation Check
+    if (vipLevel === 0) {
+      if (!withdrawal_code) {
+        return error(res, 'Withdrawal approval code required for Non-VIP accounts.', 403);
+      }
+
+      const { data: codeData, error: codeLookupErr } = await supabaseAdmin
+        .from('withdrawal_codes')
+        .select('*')
+        .eq('code', withdrawal_code.trim().toUpperCase())
+        .single();
+
+      if (codeLookupErr || !codeData) {
+        return error(res, 'Invalid withdrawal code provided.', 400);
+      }
+
+      if (codeData.is_used) {
+        return error(res, 'This withdrawal code has already been redeemed.', 400);
+      }
+
+      codeRecord = codeData;
+    }
+
+    const fee = withdrawAmount * feePercent;
+    const netAmount = withdrawAmount - fee;
+    const reference = `WD-${userId}-${Date.now()}`;
+
+    // 1. Create Transaction Entry
     const { data: transaction, error: txError } = await supabaseAdmin
       .from('transactions')
       .insert({
         user_id: userId,
         type: 'withdrawal',
-        amount: parseFloat(amount),
+        amount: withdrawAmount,
         fee: fee,
         net_amount: netAmount,
-        status: 'pending',
-        description: 'Withdrawal request',
-        reference: `WD-${Date.now()}`,
+        status: 'pending', // Default status: pending
+        description: `Withdrawal request to ${bank_name}`,
+        reference: reference,
+        bank_name: bank_name,
+        bank_account_number: bank_account_number,
+        account_name: account_name,
         metadata: {
-          bank_name,
-          bank_account_number,
-          account_name: account_name || req.user.first_name
+          vip_level: vipLevel,
+          used_code: codeRecord ? codeRecord.code : null
         }
       })
       .select()
       .single();
 
     if (txError) {
-      return error(res, 'Failed to create withdrawal request', 500);
+      console.error('Withdrawal insert error:', txError);
+      return error(res, 'Failed to process withdrawal transaction', 500);
     }
 
-    // Deduct from balance immediately
+    // 2. Mark Withdrawal Code as Used (Single-use enforcement)
+    if (codeRecord) {
+      await supabaseAdmin
+        .from('withdrawal_codes')
+        .update({
+          is_used: true,
+          used_at: new Date().toISOString()
+        })
+        .eq('id', codeRecord.id);
+    }
+
+    // 3. Deduct User Wallet Balance & Update Total Withdrawn Metrics
+    const currentBalance = Number(req.user.balance || 0);
+    const currentWithdrawn = Number(req.user.total_withdrawn || 0);
+
     await supabaseAdmin
       .from('users')
       .update({
-        balance: req.user.balance - parseFloat(amount),
+        balance: currentBalance - withdrawAmount,
+        total_withdrawn: currentWithdrawn + withdrawAmount,
         updated_at: new Date().toISOString()
       })
       .eq('id', userId);
 
     return success(res, {
       transaction,
-      message: 'Withdrawal request submitted. Processing within 24 hours.'
-    }, 'Withdrawal initiated');
+      user_email: req.user.email || req.user.phone,
+      vip_level: vipLevel,
+      redirect_url: `withdrawal_success.html?ref=${reference}`
+    }, 'Withdrawal request submitted successfully');
 
   } catch (err) {
-    console.error('Withdraw error:', err);
+    console.error('Withdraw processing error:', err);
+    return error(res, 'Internal server error processing withdrawal', 500);
+  }
+});
+
+/**
+ * GET /api/wallet/withdrawal-details/:reference
+ * Fetch transaction status and details for withdrawal_success.html
+ */
+router.get('/withdrawal-details/:reference', requireAuth, async (req, res) => {
+  try {
+    const { reference } = req.params;
+
+    const { data: tx, error: fetchErr } = await supabaseAdmin
+      .from('transactions')
+      .select('reference, amount, fee, net_amount, status, bank_name, bank_account_number, account_name, created_at')
+      .eq('reference', reference)
+      .eq('user_id', req.user.id)
+      .single();
+
+    if (fetchErr || !tx) {
+      return error(res, 'Transaction not found', 404);
+    }
+
+    return success(res, { transaction: tx });
+  } catch (err) {
     return error(res, 'Internal server error', 500);
+  }
+});
+
+/**
+ * POST /api/wallet/paystack-webhook
+ * Paystack Webhook listener for generating non-VIP withdrawal codes upon ₦2,500 payment
+ */
+router.post('/paystack-webhook', express.json(), async (req, res) => {
+  try {
+    const secret = process.env.PAYSTACK_SECRET_KEY || 'YOUR_PAYSTACK_SECRET';
+    const hash = crypto.createHmac('sha256', secret).update(JSON.stringify(req.body)).digest('hex');
+
+    if (hash !== req.headers['x-paystack-signature']) {
+      return res.status(400).send('Invalid signature');
+    }
+
+    const event = req.body;
+    if (event.event === 'charge.success') {
+      const data = event.data;
+      const customerEmail = data.customer.email;
+      const paystackRef = data.reference;
+
+      // Generate secure 8-character random code (e.g. WDC-89A7B2)
+      const generatedCode = 'WDC-' + crypto.randomBytes(3).toString('hex').toUpperCase();
+
+      // Check if code was already generated for this reference
+      const { data: existing } = await supabaseAdmin
+        .from('withdrawal_codes')
+        .select('code')
+        .eq('paystack_reference', paystackRef)
+        .maybeSingle();
+
+      if (!existing) {
+        const { data: user } = await supabaseAdmin
+          .from('users')
+          .select('id')
+          .eq('email', customerEmail)
+          .maybeSingle();
+
+        await supabaseAdmin.from('withdrawal_codes').insert({
+          user_id: user ? user.id : null,
+          email: customerEmail,
+          code: generatedCode,
+          paystack_reference: paystackRef,
+          fee_amount: 2500.00,
+          is_used: false
+        });
+      }
+    }
+
+    return res.status(200).send('Webhook Processed');
+  } catch (err) {
+    console.error('Paystack Webhook error:', err);
+    return res.status(500).send('Webhook Error');
   }
 });
 
