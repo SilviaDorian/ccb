@@ -23,6 +23,7 @@ import videosRouter from './task/videos.js';
 import booksRouter from './task/books.js'; 
 import websitesRouter from './task/websites.js'; 
 import appsRouter from './task/apps.js'; 
+import productsRouter from './task/products.js'; 
 
 
 import userReferralsHandler from './user/referrals.js';
@@ -80,6 +81,7 @@ app.use('/api/videos', videosRouter);
 app.use('/api/books', booksRouter);
 app.use('/api/websites', websitesRouter);
 app.use('/api/apps', appsRouter);
+app.use('/api/apps', productsRouter);
 
 
 // Mounts dashboardHandler across all common dashboard endpoint aliases
