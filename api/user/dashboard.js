@@ -20,7 +20,7 @@ router.get('/dashboard', requireAuth, async (req, res) => {
           id, uuid, phone, email, status, vip_role, first_name, last_name, balance, pending_balance,
           total_earned, total_withdrawn, total_deposited, vip_level, vip_expires_at,
           referral_code, referral_earnings, referral_count, tasks_completed,
-          tasks_rejected, success_rate, rating, created_at
+          tasks_rejected, success_rate, rewards_earned, rating, created_at
         `)
         .eq('id', userId)
         .single(),
