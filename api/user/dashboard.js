@@ -62,6 +62,37 @@ router.get('/dashboard', requireAuth, async (req, res) => {
   }
 });
 
+// Add this route to your existing api/user/dashboard.js router
+
+router.get('/user/submissions', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Get all approved submissions for the logged-in user
+    const { data: submissions, error: subErr } = await supabaseAdmin
+      .from('task_submissions')
+      .select('reward, status')
+      .eq('user_id', userId)
+      .eq('status', 'approved');
+
+    if (subErr) {
+      return error(res, subErr.message, 500);
+    }
+
+    const tasksCompleted = submissions.length;
+    const totalRewardsEarned = submissions.reduce((sum, item) => sum + Number(item.reward || 0), 0);
+
+    return success(res, {
+      tasks_completed: tasksCompleted,
+      rewards_earned: totalRewardsEarned,
+      submissions: submissions
+    });
+  } catch (err) {
+    console.error('Submissions Error:', err);
+    return error(res, 'Failed to fetch user submissions stats', 500);
+  }
+});
+
 /**
  * GET /api/user/referrals
  */
