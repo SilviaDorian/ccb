@@ -4,21 +4,12 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
-// --- Import TaskEarn Handlers / Routes based on your file structure ---
+// --- Auth Imports ---
 import loginHandler from './auth/login.js';
 import registerHandler from './auth/register.js';
-import tasksRouter from './task/tasks.js'; // Adjust relative path to match your folder structure
-//import dashboardRouter from './user/dashboard.js';
 
-import referralStatsHandler from './referrals/stats.js';
-
-//import tasksIndexHandler from './tasks/index.js';
-//import tasksListHandler from './tasks/lists.js';
-//import tasksSubmitHandler from './tasks/submit.js';
-
-import userDashboardHandler from './user/dashboard.js';
-import userProfileHandler from './user/profile.js';
-import bonusRouter from './wallet/bonus.js';
+// --- Task Routes ---
+import tasksRouter from './task/tasks.js';
 import videosRouter from './task/videos.js'; 
 import booksRouter from './task/books.js'; 
 import websitesRouter from './task/websites.js'; 
@@ -26,12 +17,19 @@ import appsRouter from './task/apps.js';
 import productsRouter from './task/products.js'; 
 import surveysRouter from './task/surveys.js'; 
 
-// --- Recently Updated Modules: Wallet, Webhook, and VIP Upgrade ---
-import withdrawRouter from './wallet/withdraw.js';
-import webhookRouter from './wallet/webhook.js';
+// --- User & Referral Handlers ---
+import userDashboardHandler from './user/dashboard.js';
+import userProfileHandler from './user/profile.js';
+import userReferralsHandler from './user/referrals.js';
+import referralStatsHandler from './referrals/stats.js';
+
+// --- VIP Routes ---
 import upgradeRouter from './vip/upgrade.js';
 
-import userReferralsHandler from './user/referrals.js';
+// --- Wallet & Payment Handlers ---
+import bonusRouter from './wallet/bonus.js';
+import withdrawRouter from './wallet/withdraw.js';
+import webhookRouter from './wallet/webhook.js';
 import walletBalanceHandler from './wallet/balance.js';
 import walletDepositHandler from './wallet/deposit.js';
 
@@ -46,11 +44,11 @@ app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 const corsOptions = {
   origin: [
     'http://localhost:3000',
-    'http://ccb.site.je',
-    'http://ccb.free.nf',
-    'https://ccb.free.nf',
     'http://localhost:5173',
-    'https://ccb.site.je' // Replace with your frontend domain
+    'http://ccb.site.je',
+    'https://ccb.site.je',
+    'http://ccb.free.nf',
+    'https://ccb.free.nf'
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-key'],
@@ -59,24 +57,27 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // Explicitly handle preflight requests
+app.options('*', cors(corsOptions)); // Preflight requests
 
 app.use(morgan('dev'));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// --- 3. Endpoints Wired to File-Based API Handlers ---
+// --- 3. Express Route Mounts ---
 
-// Auth
-app.use(['/api/auth/register', '/auth/register', '/register'], registerHandler);
-app.use(['/api/auth/login', '/auth/login', '/login'], loginHandler);
-app.use([
-  '/api/bonus', 
-  '/api/wallet/bonus', 
-  '/wallet/bonus', 
-  '/bonus'
-], bonusRouter);
+// Authentication
+app.use('/api/auth/register', registerHandler);
+app.use('/api/auth/login', loginHandler);
 
-// Mount tasks router to handle all /api/tasks endpoints
+// Wallet & Webhook
+app.use('/api/wallet/bonus', bonusRouter);
+app.use('/api/wallet/balance', walletBalanceHandler);
+app.use('/api/wallet/deposit', walletDepositHandler);
+app.use('/api/wallet/withdraw', withdrawRouter);
+app.use('/api/wallet', withdrawRouter); // Mount for general endpoints like /initialize-code-fee and /code-status
+app.use('/api/webhook', webhookRouter);
+
+// Tasks Modules
 app.use('/api/tasks', tasksRouter);
 app.use('/api/videos', videosRouter);
 app.use('/api/books', booksRouter);
@@ -85,33 +86,17 @@ app.use('/api/apps', appsRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/surveys', surveysRouter);
 
-// --- Webhook, Wallet & VIP Upgrade Routes ---
-app.use('/api/webhook', webhookRouter);
-app.use('/api/wallet/withdraw', withdrawRouter);
-app.use('/api/wallet', withdrawRouter); // Mount for /initialize-code-fee and /code-status
-app.use('/api/vip/upgrade', upgradeRouter);
-app.use('/api/upgrade', upgradeRouter);
-
-// Mounts dashboardHandler across all common dashboard endpoint aliases
-app.use(['/api/user','/api/users','/api/user/dashboard','/dashboard'], userDashboardHandler);
-app.use(['/api/user','/api/users','/api/user/profile','/profile'], userProfileHandler);
-
-app.use('/api/user', userDashboardHandler);
-app.use('/api/users', userDashboardHandler);
-
-// Referrals
-app.use('/api/referrals/stats', referralStatsHandler);
-
-// User
+// User Profile & Dashboard
 app.use('/api/user/dashboard', userDashboardHandler);
 app.use('/api/user/profile', userProfileHandler);
 app.use('/api/user/referrals', userReferralsHandler);
+app.use('/api/referrals/stats', referralStatsHandler);
 
-// Wallet Balance & Deposit
-app.use('/api/wallet/balance', walletBalanceHandler);
-app.use('/api/wallet/deposit', walletDepositHandler);
+// VIP Module
+app.use('/api/vip/upgrade', upgradeRouter);
+app.use('/api/upgrade', upgradeRouter);
 
-// --- 4. Service Status & Health Check ---
+// --- 4. Health Check Endpoints ---
 app.get('/', (req, res) => {
   res.json({
     status: 'Online',
@@ -138,7 +123,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, message: 'Internal Server Error' });
 });
 
-// --- 6. Local Dev Listener ---
+// --- 6. Local Server Listener ---
 if (process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 4000;
   app.listen(PORT, '0.0.0.0', () => {
