@@ -1,5 +1,4 @@
 import express from 'express';
-import crypto from 'crypto';
 import { supabaseAdmin } from '../lib/supabase.js';
 
 const router = express.Router();
@@ -18,6 +17,48 @@ const VIP_PLANS = {
 };
 
 /**
+ * Helper: Generates unique WDC-XXXXXX code without crypto module
+ */
+function generateWithdrawalCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let randomStr = '';
+  for (let i = 0; i < 6; i++) {
+    randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return `WDC-${randomStr}`;
+}
+
+/**
+ * Helper: Verify Paystack Signature using native Web Crypto API
+ */
+async function verifyPaystackSignature(signature, payload, secret) {
+  if (!signature || !secret) return false;
+  try {
+    const encoder = new TextEncoder();
+    const key = await globalThis.crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    const signatureBuffer = await globalThis.crypto.subtle.sign(
+      'HMAC',
+      key,
+      encoder.encode(payload)
+    );
+    const hashHex = Array.from(new Uint8Array(signatureBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+    
+    return hashHex === signature;
+  } catch (err) {
+    console.error('[Signature Verification Error]:', err);
+    return false;
+  }
+}
+
+/**
  * POST /api/webhook/paystack
  * Handles incoming Paystack payment notifications
  */
@@ -33,12 +74,12 @@ router.post('/paystack', express.json({
       return res.status(500).send('Server Configuration Error');
     }
 
-    // 1. Verify Paystack Signature
+    // 1. Verify Paystack Signature without crypto import
     const paystackSignature = req.headers['x-paystack-signature'];
     const payload = req.rawBody || JSON.stringify(req.body);
-    const hash = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    const isValid = await verifyPaystackSignature(paystackSignature, payload, secret);
 
-    if (hash !== paystackSignature) {
+    if (!isValid) {
       console.warn('[Webhook Warning] Invalid Paystack signature.');
       return res.status(400).send('Invalid signature');
     }
@@ -173,7 +214,7 @@ async function handleChargeSuccess(data) {
 
   // --- CASE 2: NON-VIP WITHDRAWAL CODE FEE PAYMENT ---
   if (metadata.payment_type === 'withdrawal_code_fee' || amountPaidInNaira >= 150) {
-    const generatedCode = 'WDC-' + crypto.randomBytes(3).toString('hex').toUpperCase();
+    const generatedCode = generateWithdrawalCode();
 
     const { data: existingCode } = await supabaseAdmin
       .from('withdrawal_codes')
