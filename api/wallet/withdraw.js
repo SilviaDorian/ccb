@@ -1,5 +1,4 @@
 import express from 'express';
-import crypto from 'crypto';
 import { requireAuth } from '../../middleware/auth.js';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { success, error } from '../../utils/response.js';
@@ -7,27 +6,160 @@ import { success, error } from '../../utils/response.js';
 const router = express.Router();
 
 /**
+ * Helper: Validates if today is the user's allowed monthly withdrawal day.
+ * VIP -> Based on vip_purchased_at
+ * Non-VIP -> Based on created_at (Registration Date)
+ * Testing Exception -> mitounamadike@gmail.com bypasses all date restrictions.
+ */
+function checkWithdrawalDateEligibility(user) {
+  // Testing Exception for Admin/Testing account
+  if (user.email && user.email.toLowerCase() === 'mitounamadike@gmail.com') {
+    return {
+      isAllowed: true,
+      targetDay: new Date().getDate(),
+      currentDay: new Date().getDate(),
+      accountType: 'Testing Exception (Unlimited Access)'
+    };
+  }
+
+  const isVip = Number(user.vip_level || 0) > 0;
+  const baseDateString = isVip ? user.vip_purchased_at : user.created_at;
+
+  if (!baseDateString) {
+    // Fallback if date field is missing
+    return { isAllowed: true, targetDay: new Date().getDate() };
+  }
+
+  const baseDate = new Date(baseDateString);
+  const targetDay = baseDate.getDate(); // e.g. 15th of the month
+  
+  const today = new Date();
+  const currentDay = today.getDate();
+
+  // Special handling for short months (e.g., target day 31st in February)
+  const lastDayOfCurrentMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const adjustedTargetDay = Math.min(targetDay, lastDayOfCurrentMonth);
+
+  const isAllowed = currentDay === adjustedTargetDay;
+
+  return {
+    isAllowed,
+    targetDay: adjustedTargetDay,
+    currentDay,
+    accountType: isVip ? 'VIP Purchase Date' : 'Registration Date'
+  };
+}
+
+/**
  * GET /api/wallet/withdraw/eligibility
- * Check if the user is VIP or requires a code before navigating to withdraw.html
+ * Checks VIP status, balance, withdrawal code necessity, AND monthly date eligibility.
  */
 router.get('/eligibility', requireAuth, async (req, res) => {
   try {
     const isVip = Number(req.user.vip_level || 0) > 0;
-    
+    const dateCheck = checkWithdrawalDateEligibility(req.user);
+
     return success(res, {
       vip_level: req.user.vip_level,
       is_vip: isVip,
       balance: req.user.balance,
-      requires_code: !isVip
+      requires_code: !isVip,
+      withdrawal_day_eligibility: {
+        can_withdraw_today: dateCheck.isAllowed,
+        allowed_day_of_month: dateCheck.targetDay,
+        current_day_of_month: dateCheck.currentDay,
+        date_source: dateCheck.accountType
+      }
     });
   } catch (err) {
-    return error(res, 'Failed to verify eligibility', 500);
+    console.error('Eligibility check error:', err);
+    return error(res, 'Failed to verify withdrawal eligibility', 500);
+  }
+});
+
+/**
+ * POST /api/wallet/initialize-code-fee
+ * Initializes Paystack payment for Non-VIP withdrawal code fee (₦2,500 / custom fee).
+ * Paystack Webhook receives completion and issues the WDC-XXXXXX code.
+ */
+router.post('/initialize-code-fee', requireAuth, async (req, res) => {
+  try {
+    const isVip = Number(req.user.vip_level || 0) > 0;
+    if (isVip) {
+      return error(res, 'VIP members do not require a withdrawal code.', 400);
+    }
+
+    const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
+    if (!paystackSecret) {
+      return error(res, 'Payment gateway not configured', 500);
+    }
+
+    const feeAmount = 2500; // Code Fee in Naira
+    const reference = `WDC-PAY-${req.user.id}-${Date.now()}`;
+    const callbackUrl = `${process.env.FRONTEND_URL || 'https://ccb.site.je'}/withdraw.html?code_ref=${reference}`;
+
+    const paystackRes = await fetch('https://api.paystack.co/transaction/initialize', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${paystackSecret}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        email: req.user.email || `${req.user.username || 'user'}_${req.user.id}@ccb.site.je`,
+        amount: feeAmount * 100, // Amount in Kobo
+        reference: reference,
+        callback_url: callbackUrl,
+        metadata: {
+          payment_type: 'withdrawal_code_fee',
+          user_id: req.user.id
+        }
+      })
+    });
+
+    const paystackData = await paystackRes.json();
+
+    if (!paystackRes.ok || !paystackData.status) {
+      return error(res, paystackData.message || 'Failed to initialize code payment', 400);
+    }
+
+    return success(res, {
+      authorization_url: paystackData.data.authorization_url,
+      reference: reference
+    }, 'Withdrawal code payment initialized');
+
+  } catch (err) {
+    console.error('Code fee init error:', err);
+    return error(res, 'Internal server error initializing code payment', 500);
+  }
+});
+
+/**
+ * GET /api/wallet/code-status
+ * Fetches active, unused withdrawal code for current Non-VIP user (if generated via Webhook).
+ */
+router.get('/code-status', requireAuth, async (req, res) => {
+  try {
+    const { data: codeRecord } = await supabaseAdmin
+      .from('withdrawal_codes')
+      .select('code, created_at, is_used')
+      .eq('user_id', req.user.id)
+      .eq('is_used', false)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    return success(res, {
+      has_code: !!codeRecord,
+      code: codeRecord ? codeRecord.code : null
+    });
+  } catch (err) {
+    return error(res, 'Failed to fetch withdrawal code status', 500);
   }
 });
 
 /**
  * POST /api/wallet/verify-code
- * Validates a non-VIP user's code BEFORE opening the withdrawal form
+ * Validates a non-VIP user's withdrawal code prior to form submission.
  */
 router.post('/verify-code', requireAuth, async (req, res) => {
   try {
@@ -58,7 +190,7 @@ router.post('/verify-code', requireAuth, async (req, res) => {
 
 /**
  * POST /api/wallet/withdraw
- * Main withdrawal initiation route (Handles both VIP and Non-VIP)
+ * Main manual withdrawal initiation route.
  */
 router.post('/', requireAuth, async (req, res) => {
   try {
@@ -68,12 +200,19 @@ router.post('/', requireAuth, async (req, res) => {
     const minWithdrawal = 1500;
     const feePercent = 0.05;
 
+    // 1. Monthly Date Eligibility Enforcement
+    const dateCheck = checkWithdrawalDateEligibility(req.user);
+    if (!dateCheck.isAllowed) {
+      return error(res, `Withdrawal allowed only on the ${dateCheck.targetDay}th of every month based on your ${dateCheck.accountType}.`, 403);
+    }
+
+    // 2. Amount & Balance Validation
     const withdrawAmount = parseFloat(amount);
     if (!withdrawAmount || withdrawAmount < minWithdrawal) {
       return error(res, `Minimum withdrawal amount is ₦${minWithdrawal.toLocaleString()}`, 400);
     }
 
-    if (withdrawAmount > req.user.balance) {
+    if (withdrawAmount > Number(req.user.balance || 0)) {
       return error(res, 'Insufficient wallet balance', 400);
     }
 
@@ -83,7 +222,7 @@ router.post('/', requireAuth, async (req, res) => {
 
     let codeRecord = null;
 
-    // Non-VIP Validation Check
+    // 3. Non-VIP Code Validation
     if (vipLevel === 0) {
       if (!withdrawal_code) {
         return error(res, 'Withdrawal approval code required for Non-VIP accounts.', 403);
@@ -110,7 +249,7 @@ router.post('/', requireAuth, async (req, res) => {
     const netAmount = withdrawAmount - fee;
     const reference = `WD-${userId}-${Date.now()}`;
 
-    // 1. Create Transaction Entry
+    // 4. Create Transaction Record (Pending Admin Manual Payout)
     const { data: transaction, error: txError } = await supabaseAdmin
       .from('transactions')
       .insert({
@@ -119,8 +258,8 @@ router.post('/', requireAuth, async (req, res) => {
         amount: withdrawAmount,
         fee: fee,
         net_amount: netAmount,
-        status: 'pending', // Default status: pending
-        description: `Withdrawal request to ${bank_name}`,
+        status: 'pending',
+        description: `Manual withdrawal request to ${bank_name}`,
         reference: reference,
         bank_name: bank_name,
         bank_account_number: bank_account_number,
@@ -138,7 +277,7 @@ router.post('/', requireAuth, async (req, res) => {
       return error(res, 'Failed to process withdrawal transaction', 500);
     }
 
-    // 2. Mark Withdrawal Code as Used (Single-use enforcement)
+    // 5. Burn Single-Use Non-VIP Code
     if (codeRecord) {
       await supabaseAdmin
         .from('withdrawal_codes')
@@ -149,7 +288,7 @@ router.post('/', requireAuth, async (req, res) => {
         .eq('id', codeRecord.id);
     }
 
-    // 3. Deduct User Wallet Balance & Update Total Withdrawn Metrics
+    // 6. Deduct Balance & Update Total Withdrawn
     const currentBalance = Number(req.user.balance || 0);
     const currentWithdrawn = Number(req.user.total_withdrawn || 0);
 
@@ -167,7 +306,7 @@ router.post('/', requireAuth, async (req, res) => {
       user_email: req.user.email || req.user.phone,
       vip_level: vipLevel,
       redirect_url: `withdrawal_success.html?ref=${reference}`
-    }, 'Withdrawal request submitted successfully');
+    }, 'Withdrawal request submitted successfully for manual payout');
 
   } catch (err) {
     console.error('Withdraw processing error:', err);
@@ -197,60 +336,6 @@ router.get('/withdrawal-details/:reference', requireAuth, async (req, res) => {
     return success(res, { transaction: tx });
   } catch (err) {
     return error(res, 'Internal server error', 500);
-  }
-});
-
-/**
- * POST /api/wallet/paystack-webhook
- * Paystack Webhook listener for generating non-VIP withdrawal codes upon ₦2,500 payment
- */
-router.post('/paystack-webhook', express.json(), async (req, res) => {
-  try {
-    const secret = process.env.PAYSTACK_SECRET_KEY || 'YOUR_PAYSTACK_SECRET';
-    const hash = crypto.createHmac('sha256', secret).update(JSON.stringify(req.body)).digest('hex');
-
-    if (hash !== req.headers['x-paystack-signature']) {
-      return res.status(400).send('Invalid signature');
-    }
-
-    const event = req.body;
-    if (event.event === 'charge.success') {
-      const data = event.data;
-      const customerEmail = data.customer.email;
-      const paystackRef = data.reference;
-
-      // Generate secure 8-character random code (e.g. WDC-89A7B2)
-      const generatedCode = 'WDC-' + crypto.randomBytes(3).toString('hex').toUpperCase();
-
-      // Check if code was already generated for this reference
-      const { data: existing } = await supabaseAdmin
-        .from('withdrawal_codes')
-        .select('code')
-        .eq('paystack_reference', paystackRef)
-        .maybeSingle();
-
-      if (!existing) {
-        const { data: user } = await supabaseAdmin
-          .from('users')
-          .select('id')
-          .eq('email', customerEmail)
-          .maybeSingle();
-
-        await supabaseAdmin.from('withdrawal_codes').insert({
-          user_id: user ? user.id : null,
-          email: customerEmail,
-          code: generatedCode,
-          paystack_reference: paystackRef,
-          fee_amount: 150.00,
-          is_used: false
-        });
-      }
-    }
-
-    return res.status(200).send('Webhook Processed');
-  } catch (err) {
-    console.error('Paystack Webhook error:', err);
-    return res.status(500).send('Webhook Error');
   }
 });
 

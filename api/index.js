@@ -25,6 +25,7 @@ import websitesRouter from './task/websites.js';
 import appsRouter from './task/apps.js'; 
 import productsRouter from './task/products.js'; 
 import surveysRouter from './task/surveys.js'; 
+import webhookRouter from './wallet/webhook.js'; // Adjust path if located in ./routes/api/webhook.js
 
 
 import userReferralsHandler from './user/referrals.js';
@@ -84,6 +85,7 @@ app.use('/api/websites', websitesRouter);
 app.use('/api/apps', appsRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/surveys', surveysRouter);
+app.use('/api/webhook', webhookRouter);
 
 
 // Mounts dashboardHandler across all common dashboard endpoint aliases

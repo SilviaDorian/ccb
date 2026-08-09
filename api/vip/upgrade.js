@@ -15,10 +15,82 @@ export const VIP_PLANS = {
   7: { name: 'Legend', level: 7, price: 250000, duration_days: 60, daily_bonus: 55000, task_access_level: 7, description: 'Supreme status with VIP concierge support & top rewards.' }
 };
 
+/**
+ * GET /api/vip/plans
+ */
 router.get('/plans', (req, res) => {
   return success(res, Object.values(VIP_PLANS));
 });
 
+/**
+ * POST /api/vip/initialize-payment
+ * Generates Paystack payment link for direct VIP upgrade via Card/Transfer/USSD.
+ * Webhook handles fulfillment upon charge.success.
+ */
+router.post('/initialize-payment', requireAuth, async (req, res) => {
+  try {
+    const { plan_id } = req.body;
+    const planId = Number(plan_id);
+    const plan = VIP_PLANS[planId];
+
+    if (!plan) {
+      return error(res, 'Invalid VIP plan specified', 400);
+    }
+
+    if (req.user.vip_level >= plan.level) {
+      return error(res, `You already have ${req.user.vip_role || 'this level'} or higher`, 400);
+    }
+
+    const paystackSecret = process.env.PAYSTACK_SECRET_KEY;
+    if (!paystackSecret) {
+      return error(res, 'Payment gateway key not configured', 500);
+    }
+
+    const reference = `VIP-PAY-${plan.level}-${req.user.id}-${Date.now()}`;
+    const callbackUrl = `${process.env.FRONTEND_URL || 'https://ccb.site.je'}/vip.html?ref=${reference}`;
+
+    const paystackRes = await fetch('https://api.paystack.co/transaction/initialize', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${paystackSecret}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        email: req.user.email || `${req.user.username || 'user'}_${req.user.id}@ccb.site.je`,
+        amount: plan.price * 100, // Amount in Kobo
+        reference: reference,
+        callback_url: callbackUrl,
+        metadata: {
+          payment_type: 'vip_upgrade',
+          plan_id: plan.level,
+          user_id: req.user.id,
+          plan_name: plan.name
+        }
+      })
+    });
+
+    const paystackData = await paystackRes.json();
+
+    if (!paystackRes.ok || !paystackData.status) {
+      return error(res, paystackData.message || 'Failed to initialize Paystack payment', 400);
+    }
+
+    return success(res, {
+      authorization_url: paystackData.data.authorization_url,
+      access_code: paystackData.data.access_code,
+      reference: reference
+    }, 'Payment initialized successfully');
+
+  } catch (err) {
+    console.error('VIP Paystack init error:', err);
+    return error(res, 'Internal server error initializing payment', 500);
+  }
+});
+
+/**
+ * POST /api/vip/upgrade
+ * Internal Wallet balance deduction upgrade route.
+ */
 router.post('/upgrade', requireAuth, async (req, res) => {
   try {
     const { plan_id } = req.body;
@@ -34,11 +106,12 @@ router.post('/upgrade', requireAuth, async (req, res) => {
       return error(res, `You already have ${req.user.vip_role || 'this level'} or higher`, 400);
     }
 
-    if (req.user.balance < plan.price) {
+    const currentBalance = Number(req.user.balance || 0);
+    if (currentBalance < plan.price) {
       return error(res, `Insufficient balance. You need ₦${plan.price.toLocaleString()} to upgrade to ${plan.name}`, 400);
     }
 
-    const newBalance = req.user.balance - plan.price;
+    const newBalance = currentBalance - plan.price;
     const nowIso = new Date().toISOString();
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + plan.duration_days);
@@ -51,7 +124,7 @@ router.post('/upgrade', requireAuth, async (req, res) => {
         vip_role: plan.name,
         vip_expires_at: expiresAt.toISOString(),
         vip_purchased_at: nowIso,
-        last_bonus_claimed_at: nowIso, // Resets daily bonus cycle upon tier upgrade
+        last_bonus_claimed_at: nowIso,
         task_access_level: plan.task_access_level,
         updated_at: nowIso
       })
@@ -64,6 +137,8 @@ router.post('/upgrade', requireAuth, async (req, res) => {
       return error(res, 'Failed to upgrade VIP', 500);
     }
 
+    const reference = `VIP-BAL-${plan.level}-${userId}-${Date.now()}`;
+
     await supabaseAdmin.from('transactions').insert({
       user_id: userId,
       type: 'vip_purchase',
@@ -71,8 +146,8 @@ router.post('/upgrade', requireAuth, async (req, res) => {
       fee: 0.00,
       net_amount: plan.price,
       status: 'completed',
-      description: `Upgraded to ${plan.name} (Level ${plan.level})`,
-      reference: `VIP-${plan.level}-${Date.now()}`
+      description: `Upgraded to ${plan.name} (Level ${plan.level}) via Wallet Balance`,
+      reference: reference
     });
 
     return success(res, {
