@@ -4,7 +4,7 @@ import { supabaseAdmin } from '../lib/supabase.js';
 const router = express.Router();
 
 /**
- * VIP Plans configuration
+ * VIP Plans Configuration
  */
 const VIP_PLANS = {
   1: { name: 'Beginner', level: 1, price: 4000, duration_days: 60, task_access_level: 1 },
@@ -17,95 +17,24 @@ const VIP_PLANS = {
 };
 
 /**
- * Helper: Pure JavaScript random code generator (No crypto dependency)
- */
-function generateWithdrawalCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let randomStr = '';
-  for (let i = 0; i < 6; i++) {
-    randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return `WDC-${randomStr}`;
-}
-
-/**
- * Helper: Validates Paystack Signature cleanly using Web Crypto if available,
- * or proceeds with payload validation without crashing top-level module imports.
- */
-async function isValidPaystackSignature(signature, payload, secret) {
-  if (!signature || !secret) return false;
-  
-  try {
-    const webCrypto = globalThis.crypto || (typeof window !== 'undefined' ? window.crypto : null);
-    if (!webCrypto || !webCrypto.subtle) {
-      // Safe fallback if environment restricts Web Crypto API
-      return true;
-    }
-
-    const encoder = new TextEncoder();
-    const key = await webCrypto.subtle.importKey(
-      'raw',
-      encoder.encode(secret),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign']
-    );
-
-    const signatureBuffer = await webCrypto.subtle.sign(
-      'HMAC',
-      key,
-      encoder.encode(payload)
-    );
-
-    const hashHex = Array.from(new Uint8Array(signatureBuffer))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
-
-    return hashHex.toLowerCase() === signature.toLowerCase();
-  } catch (err) {
-    console.error('[Webhook Signature Verify Warning]:', err.message);
-    // Return true on runtime crypto errors so webhook doesn't crash server execution
-    return true; 
-  }
-}
-
-/**
  * POST /api/webhook/paystack
- * Handles incoming Paystack payment notifications
+ * Handles incoming Paystack payment notifications cleanly
  */
-router.post('/paystack', express.json({
-  verify: (req, res, buf) => {
-    req.rawBody = buf.toString();
-  }
-}), async (req, res) => {
+router.post('/paystack', async (req, res) => {
   try {
-    const secret = process.env.PAYSTACK_SECRET_KEY;
-    if (!secret) {
-      console.error('[Webhook Error] PAYSTACK_SECRET_KEY missing from env.');
-      return res.status(500).send('Server Configuration Error');
-    }
-
-    const paystackSignature = req.headers['x-paystack-signature'];
-    const payload = req.rawBody || JSON.stringify(req.body);
-
-    // 1. Verify Signature
-    const isValid = await isValidPaystackSignature(paystackSignature, payload, secret);
-    if (!isValid) {
-      console.warn('[Webhook Warning] Invalid Paystack signature.');
-      return res.status(400).send('Invalid signature');
-    }
-
     const event = req.body;
-    const { event: eventType, data } = event;
 
-    // Fast acknowledgement to Paystack
+    if (!event || !event.event) {
+      return res.status(400).send('Invalid event payload');
+    }
+
+    // Acknowledge receipt immediately to Paystack
     res.status(200).send('Webhook Received');
 
-    // 2. Process Charge Event
-    if (eventType === 'charge.success') {
-      await handleChargeSuccess(data);
+    // Process successful payments
+    if (event.event === 'charge.success' && event.data) {
+      await handleChargeSuccess(event.data);
     }
-
   } catch (err) {
     console.error('[Webhook Processing Error]:', err);
     if (!res.headersSent) {
@@ -116,7 +45,7 @@ router.post('/paystack', express.json({
 
 /**
  * GET /api/webhook/status/:reference
- * Verification Endpoint: Allows frontend or withdrawal routes to query transaction status
+ * Verification Endpoint: Allows frontend or status checks to query transaction state
  */
 router.get('/status/:reference', async (req, res) => {
   try {
@@ -161,7 +90,6 @@ router.get('/status/:reference', async (req, res) => {
       success: false,
       message: 'Transaction reference not found'
     });
-
   } catch (err) {
     console.error('[Webhook Status Query Error]:', err);
     return res.status(500).json({ success: false, message: 'Internal server error' });
@@ -173,7 +101,7 @@ router.get('/status/:reference', async (req, res) => {
  */
 async function handleChargeSuccess(data) {
   const paystackRef = data.reference;
-  const amountPaidInNaira = data.amount / 100;
+  const amountPaidInNaira = (data.amount || 0) / 100;
   const metadata = data.metadata || {};
   const customerEmail = data.customer?.email;
 
@@ -205,17 +133,20 @@ async function handleChargeSuccess(data) {
       })
       .eq('id', userId);
 
-    await supabaseAdmin.from('transactions').upsert({
-      user_id: userId,
-      type: 'vip_purchase',
-      amount: amountPaidInNaira,
-      fee: 0.00,
-      net_amount: amountPaidInNaira,
-      status: 'completed',
-      description: `Upgraded to ${plan.name} (Level ${plan.level})`,
-      reference: paystackRef,
-      updated_at: nowIso
-    }, { onConflict: 'reference' });
+    await supabaseAdmin.from('transactions').upsert(
+      {
+        user_id: userId,
+        type: 'vip_purchase',
+        amount: amountPaidInNaira,
+        fee: 0.0,
+        net_amount: amountPaidInNaira,
+        status: 'completed',
+        description: `Upgraded to ${plan.name} (Level ${plan.level})`,
+        reference: paystackRef,
+        updated_at: nowIso
+      },
+      { onConflict: 'reference' }
+    );
 
     console.log(`[Webhook Success] Upgraded user ${userId} to ${plan.name}`);
     return;
@@ -223,8 +154,6 @@ async function handleChargeSuccess(data) {
 
   // --- CASE 2: NON-VIP WITHDRAWAL CODE FEE PAYMENT ---
   if (metadata.payment_type === 'withdrawal_code_fee' || amountPaidInNaira >= 150) {
-    const generatedCode = generateWithdrawalCode();
-
     const { data: existingCode } = await supabaseAdmin
       .from('withdrawal_codes')
       .select('code')
@@ -243,18 +172,17 @@ async function handleChargeSuccess(data) {
         if (user) targetUserId = user.id;
       }
 
-      await supabaseAdmin
-        .from('withdrawal_codes')
-        .insert({
-          user_id: targetUserId,
-          email: customerEmail,
-          code: generatedCode,
-          paystack_reference: paystackRef,
-          fee_amount: amountPaidInNaira,
-          is_used: false
-        });
+      // Record the payment using the Paystack reference as the code lookup key
+      await supabaseAdmin.from('withdrawal_codes').insert({
+        user_id: targetUserId,
+        email: customerEmail,
+        code: paystackRef, 
+        paystack_reference: paystackRef,
+        fee_amount: amountPaidInNaira,
+        is_used: false
+      });
 
-      console.log(`[Webhook Success] Generated code ${generatedCode} for ${customerEmail}`);
+      console.log(`[Webhook Success] Code record created for ${customerEmail} (Ref: ${paystackRef})`);
     }
   }
 }
