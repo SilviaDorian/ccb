@@ -25,17 +25,15 @@ import websitesRouter from './task/websites.js';
 import appsRouter from './task/apps.js'; 
 import productsRouter from './task/products.js'; 
 import surveysRouter from './task/surveys.js'; 
+
+// --- Recently Updated Modules: Wallet, Webhook, and VIP Upgrade ---
 import withdrawRouter from './wallet/withdraw.js';
 import webhookRouter from './wallet/webhook.js';
 import upgradeRouter from './vip/upgrade.js';
 
-
-
 import userReferralsHandler from './user/referrals.js';
-//import vipUpgradeHandler from './vip/upgrade.js';
 import walletBalanceHandler from './wallet/balance.js';
 import walletDepositHandler from './wallet/deposit.js';
-//import walletWithdrawHandler from './wallet/withdraw.js';
 
 dotenv.config();
 
@@ -71,14 +69,12 @@ app.use(express.json());
 // Auth
 app.use(['/api/auth/register', '/auth/register', '/register'], registerHandler);
 app.use(['/api/auth/login', '/auth/login', '/login'], loginHandler);
-app.use(['/api/wallet/bonus', '/wallet/bonus', '/bonus'], bonusRouter);
 app.use([
   '/api/bonus', 
   '/api/wallet/bonus', 
   '/wallet/bonus', 
   '/bonus'
 ], bonusRouter);
-
 
 // Mount tasks router to handle all /api/tasks endpoints
 app.use('/api/tasks', tasksRouter);
@@ -88,46 +84,32 @@ app.use('/api/websites', websitesRouter);
 app.use('/api/apps', appsRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/surveys', surveysRouter);
+
+// --- Webhook, Wallet & VIP Upgrade Routes ---
 app.use('/api/webhook', webhookRouter);
 app.use('/api/wallet/withdraw', withdrawRouter);
-app.use('/api/wallet', withdrawRouter);
+app.use('/api/wallet', withdrawRouter); // Mount for /initialize-code-fee and /code-status
+app.use('/api/vip/upgrade', upgradeRouter);
 app.use('/api/upgrade', upgradeRouter);
-
-
 
 // Mounts dashboardHandler across all common dashboard endpoint aliases
 app.use(['/api/user','/api/users','/api/user/dashboard','/dashboard'], userDashboardHandler);
 app.use(['/api/user','/api/users','/api/user/profile','/profile'], userProfileHandler);
-//app.use(['/api/vip','/api/vips','/api/vip/upgrade','/upgrade'], vipUpgradeHandler);
-
-
-
 
 app.use('/api/user', userDashboardHandler);
 app.use('/api/users', userDashboardHandler);
 
-
-
 // Referrals
 app.use('/api/referrals/stats', referralStatsHandler);
-
-// Tasks
-//app.use('/api/tasks/index', tasksIndexHandler);
-//app.use('/api/tasks/list', tasksListHandler);
-//app.use('/api/tasks/submit', tasksSubmitHandler);
 
 // User
 app.use('/api/user/dashboard', userDashboardHandler);
 app.use('/api/user/profile', userProfileHandler);
 app.use('/api/user/referrals', userReferralsHandler);
 
-// VIP
-app.use('/api/vip/upgrade', vipUpgradeHandler);
-
-// Wallet
+// Wallet Balance & Deposit
 app.use('/api/wallet/balance', walletBalanceHandler);
 app.use('/api/wallet/deposit', walletDepositHandler);
-//app.use('/api/wallet/withdraw', walletWithdrawHandler);
 
 // --- 4. Service Status & Health Check ---
 app.get('/', (req, res) => {
