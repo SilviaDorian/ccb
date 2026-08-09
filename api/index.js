@@ -27,10 +27,12 @@ import productsRouter from './task/products.js';
 import surveysRouter from './task/surveys.js'; 
 import withdrawRouter from './wallet/withdraw.js';
 import webhookRouter from './wallet/webhook.js';
+import upgradeRouter from './vip/upgrade.js';
+
 
 
 import userReferralsHandler from './user/referrals.js';
-import vipUpgradeHandler from './vip/upgrade.js';
+//import vipUpgradeHandler from './vip/upgrade.js';
 import walletBalanceHandler from './wallet/balance.js';
 import walletDepositHandler from './wallet/deposit.js';
 //import walletWithdrawHandler from './wallet/withdraw.js';
@@ -89,12 +91,14 @@ app.use('/api/surveys', surveysRouter);
 app.use('/api/webhook', webhookRouter);
 app.use('/api/wallet/withdraw', withdrawRouter);
 app.use('/api/wallet', withdrawRouter);
+app.use('/api/upgrade', upgradeRouter);
+
 
 
 // Mounts dashboardHandler across all common dashboard endpoint aliases
 app.use(['/api/user','/api/users','/api/user/dashboard','/dashboard'], userDashboardHandler);
 app.use(['/api/user','/api/users','/api/user/profile','/profile'], userProfileHandler);
-app.use(['/api/vip','/api/vips','/api/vip/upgrade','/upgrade'], vipUpgradeHandler);
+//app.use(['/api/vip','/api/vips','/api/vip/upgrade','/upgrade'], vipUpgradeHandler);
 
 
 
