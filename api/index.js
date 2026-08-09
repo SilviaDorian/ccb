@@ -26,13 +26,14 @@ import appsRouter from './task/apps.js';
 import productsRouter from './task/products.js'; 
 import surveysRouter from './task/surveys.js'; 
 import webhookRouter from './wallet/webhook.js'; // Adjust path if located in ./routes/api/webhook.js
+import withdrawRouter from './wallet/withdraw.js';
 
 
 import userReferralsHandler from './user/referrals.js';
 import vipUpgradeHandler from './vip/upgrade.js';
 import walletBalanceHandler from './wallet/balance.js';
 import walletDepositHandler from './wallet/deposit.js';
-import walletWithdrawHandler from './wallet/withdraw.js';
+//import walletWithdrawHandler from './wallet/withdraw.js';
 
 dotenv.config();
 
@@ -86,6 +87,7 @@ app.use('/api/apps', appsRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/surveys', surveysRouter);
 app.use('/api/webhook', webhookRouter);
+app.use('/api/wallet', withdrawRouter);
 
 
 // Mounts dashboardHandler across all common dashboard endpoint aliases
@@ -120,7 +122,7 @@ app.use('/api/vip/upgrade', vipUpgradeHandler);
 // Wallet
 app.use('/api/wallet/balance', walletBalanceHandler);
 app.use('/api/wallet/deposit', walletDepositHandler);
-app.use('/api/wallet/withdraw', walletWithdrawHandler);
+//app.use('/api/wallet/withdraw', walletWithdrawHandler);
 
 // --- 4. Service Status & Health Check ---
 app.get('/', (req, res) => {
