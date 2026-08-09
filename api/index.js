@@ -26,7 +26,7 @@ import appsRouter from './task/apps.js';
 import productsRouter from './task/products.js'; 
 import surveysRouter from './task/surveys.js'; 
 import withdrawRouter from './wallet/withdraw.js';
-//import webhookRouter from './wallet/webhook.js';
+import webhookRouter from './wallet/webhook.js';
 import upgradeRouter from './vip/upgrade.js';
 
 
@@ -88,7 +88,7 @@ app.use('/api/websites', websitesRouter);
 app.use('/api/apps', appsRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/surveys', surveysRouter);
-//app.use('/api/webhook', webhookRouter);
+app.use('/api/webhook', webhookRouter);
 app.use('/api/wallet/withdraw', withdrawRouter);
 app.use('/api/wallet', withdrawRouter);
 app.use('/api/upgrade', upgradeRouter);
