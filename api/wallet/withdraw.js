@@ -94,7 +94,7 @@ router.post('/initialize-code-fee', requireAuth, async (req, res) => {
       return error(res, 'Payment gateway not configured', 500);
     }
 
-    const feeAmount = 2500; // Code Fee in Naira
+    const feeAmount = 200; // Code Fee in Naira
     const reference = `WDC-PAY-${req.user.id}-${Date.now()}`;
     const callbackUrl = `${process.env.FRONTEND_URL || 'https://ccb.site.je'}/withdraw.html?code_ref=${reference}`;
 
