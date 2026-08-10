@@ -13,7 +13,7 @@ const router = express.Router();
  */
 function checkWithdrawalDateEligibility(user) {
   // Testing Exception for Admin/Testing account
-  if (user.email && user.email.toLowerCase() === 'mitounamadike@gmail.com') {
+  if (user.email && user.email.toLowerCase() === 'mitounamadike@gmail.com, mariabutters48@gmail.com') {
     return {
       isAllowed: true,
       targetDay: new Date().getDate(),
