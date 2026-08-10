@@ -197,8 +197,8 @@ router.post('/', requireAuth, async (req, res) => {
     const { amount, bank_account_number, bank_name, account_name, withdrawal_code } = req.body;
     const userId = req.user.id;
     const vipLevel = Number(req.user.vip_level || 0);
-    const minWithdrawal = 1500;
-    const feePercent = 0.05;
+    const minWithdrawal = 100;
+    const feePercent = 0.0;
 
     // 1. Monthly Date Eligibility Enforcement
     const dateCheck = checkWithdrawalDateEligibility(req.user);
