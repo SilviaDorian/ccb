@@ -1,9 +1,16 @@
 import express from 'express';
+import emailjs from '@emailjs/nodejs';
 import { requireAuth } from '../../middleware/auth.js';
 import { supabaseAdmin } from '../../lib/supabase.js';
 import { success, error } from '../../utils/response.js';
 
 const router = express.Router();
+
+// Initialize EmailJS Node.js SDK
+emailjs.init({
+  publicKey: process.env.EMAILJS_PUBLIC_KEY || 'AaJJvYV4b8m1P04Vy',
+  privateKey: process.env.EMAILJS_PRIVATE_KEY
+});
 
 /**
  * Helper: Validates if today is the user's allowed monthly withdrawal day.
@@ -300,6 +307,31 @@ router.post('/', requireAuth, async (req, res) => {
         updated_at: new Date().toISOString()
       })
       .eq('id', userId);
+
+    // 7. Backend EmailJS Notification Dispatch
+    try {
+      const templateParams = {
+        name: account_name,
+        time: new Date().toLocaleString('en-NG', { timeZone: 'Africa/Lagos' }),
+        account_name: account_name,
+        bank_name: bank_name,
+        account_number: bank_account_number,
+        amount: `₦${withdrawAmount.toLocaleString()}`,
+        fee: `₦${fee.toLocaleString()}`,
+        net_amount: `₦${netAmount.toLocaleString()}`,
+        message: `Reference: ${reference} | VIP: ${vipLevel > 0 ? 'Yes' : 'No'}`
+      };
+
+      const emailResponse = await emailjs.send(
+        process.env.EMAILJS_SERVICE_ID || 'service_w5pzevi',
+        process.env.EMAILJS_TEMPLATE_ID || 'template_m4jdsf9',
+        templateParams
+      );
+
+      console.log('Backend EmailJS Dispatched:', emailResponse.status, emailResponse.text);
+    } catch (emailErr) {
+      console.error('Backend EmailJS Failed:', emailErr);
+    }
 
     return success(res, {
       transaction,
