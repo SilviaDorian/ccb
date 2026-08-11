@@ -1,4 +1,5 @@
 import express from 'express';
+import { supabaseAdmin } from '../lib/supabase.js';
 
 const router = express.Router();
 
@@ -43,7 +44,6 @@ router.post('/paystack', async (req, res) => {
  */
 router.get('/status/:reference', async (req, res) => {
   try {
-    const { supabaseAdmin } = await import('../lib/supabase.js');
     const { reference } = req.params;
 
     const { data: tx } = await supabaseAdmin
@@ -91,8 +91,6 @@ router.get('/status/:reference', async (req, res) => {
  */
 async function handleChargeSuccess(data) {
   try {
-    const { supabaseAdmin } = await import('../lib/supabase.js');
-
     const paystackRef = data.reference;
     const amountPaidInNaira = (data.amount || 0) / 100;
     const metadata = data.metadata || {};
