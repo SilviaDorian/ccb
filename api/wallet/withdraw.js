@@ -337,7 +337,7 @@ router.post('/', requireAuth, async (req, res) => {
       transaction,
       user_email: req.user.email || req.user.phone,
       vip_level: vipLevel,
-      redirect_url: `withdraw_success.html?ref=${reference}`
+      redirect_url: `withdrawal_success.html?ref=${reference}`
     }, 'Withdrawal request submitted successfully for manual payout');
 
   } catch (err) {
