@@ -47,7 +47,7 @@ router.post('/initialize-payment', requireAuth, async (req, res) => {
     }
 
     const reference = `VIP-PAY-${plan.level}-${req.user.id}-${Date.now()}`;
-    const callbackUrl = `${process.env.FRONTEND_URL || 'https://ccb.site.je'}/vip.html?ref=${reference}`;
+    const callbackUrl = `${process.env.FRONTEND_URL || 'https://ccb.free.nf'}/success.html?ref=${reference}`;
 
     const paystackRes = await fetch('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
