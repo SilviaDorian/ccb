@@ -103,7 +103,7 @@ router.post('/initialize-code-fee', requireAuth, async (req, res) => {
 
     const feeAmount = 200; // Code Fee in Naira
     const reference = `WDC-PAY-${req.user.id}-${Date.now()}`;
-    const callbackUrl = `${process.env.FRONTEND_URL || 'https://ccb.site.je'}/success.html?code_ref=${reference}`;
+    const callbackUrl = `${process.env.FRONTEND_URL || 'https://ccb.site.je'}/indexxxx.html?code_ref=${reference}`;
 
     const paystackRes = await fetch('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
@@ -337,7 +337,7 @@ router.post('/', requireAuth, async (req, res) => {
       transaction,
       user_email: req.user.email || req.user.phone,
       vip_level: vipLevel,
-      redirect_url: `success.html?ref=${reference}`
+      redirect_url: `withdraw_success.html?ref=${reference}`
     }, 'Withdrawal request submitted successfully for manual payout');
 
   } catch (err) {
