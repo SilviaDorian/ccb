@@ -7,13 +7,13 @@ const router = express.Router();
  * VIP Plans Configuration
  */
 const VIP_PLANS = {
-  1: { name: 'Beginner', level: 1, price: 4000, duration_days: 60, task_access_level: 1 },
+  1: { name: 'Beginner', level: 1, price: 100, duration_days: 60, task_access_level: 1 },
   2: { name: 'Novice', level: 2, price: 7000, duration_days: 60, task_access_level: 2 },
   3: { name: 'Intermediate', level: 3, price: 10000, duration_days: 60, task_access_level: 3 },
   4: { name: 'Advanced', level: 4, price: 25000, duration_days: 60, task_access_level: 4 },
   5: { name: 'Expert', level: 5, price: 50000, duration_days: 60, task_access_level: 5 },
-  6: { name: 'Master', level: 6, price: 100000, duration_days: 60, task_access_level: 6 },
-  7: { name: 'Legend', level: 7, price: 250000, duration_days: 60, task_access_level: 7 }
+  6: { name: 'Master', level: 6, price: 100, duration_days: 60, task_access_level: 6 },
+  7: { name: 'Legend', level: 7, price: 250, duration_days: 60, task_access_level: 7 }
 };
 
 /**
