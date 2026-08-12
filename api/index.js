@@ -92,6 +92,7 @@ app.use('/api/webhook', webhookRouter);
 app.use('/api/wallet/withdraw', withdrawRouter);
 app.use('/api/wallet', withdrawRouter);
 app.use('/api/upgrade', upgradeRouter);
+app.use('/api/vip', upgradeRouter);
 
 
 
