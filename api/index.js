@@ -95,9 +95,12 @@ app.use('/api/upgrade', upgradeRouter);
 
 
 
+
 // Mounts dashboardHandler across all common dashboard endpoint aliases
 app.use(['/api/user','/api/users','/api/user/dashboard','/dashboard'], userDashboardHandler);
 app.use(['/api/user','/api/users','/api/user/profile','/profile'], userProfileHandler);
+//app.use(['/api/user','/api/users','/api/user/admin','/admin'], userAdminHandler);
+
 //app.use(['/api/vip','/api/vips','/api/vip/upgrade','/upgrade'], vipUpgradeHandler);
 
 

@@ -124,4 +124,19 @@ router.get('/referrals', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/admin/users
+router.get('/admin/users', requireAuth, async (req, res) => {
+  try {
+    const { data: users, error: dbErr } = await supabaseAdmin
+      .from('users')
+      .select('id, first_name, last_name, email, phone, state, vip_role, vip_level, balance, total_deposited, status, created_at')
+      .order('total_deposited', { ascending: false });
+
+    if (dbErr) return error(res, dbErr.message, 500);
+    return success(res, { users });
+  } catch (err) {
+    return error(res, 'Failed to fetch user directory', 500);
+  }
+});
+
 export default router;
