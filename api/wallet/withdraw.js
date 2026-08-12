@@ -112,7 +112,7 @@ router.post('/initialize-code-fee', requireAuth, async (req, res) => {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        email: req.user.email || `${req.user.username || 'user'}_${req.user.id}@ccb.site.je`,
+        email: req.user.email || `${req.user.username || 'user'}_${req.user.id}@ccb.free.nf`,
         amount: feeAmount * 100, // Amount in Kobo
         reference: reference,
         callback_url: callbackUrl,
