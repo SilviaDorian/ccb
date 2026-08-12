@@ -103,7 +103,7 @@ router.post('/initialize-code-fee', requireAuth, async (req, res) => {
 
     const feeAmount = 200; // Code Fee in Naira
     const reference = `WDC-PAY-${req.user.id}-${Date.now()}`;
-    const callbackUrl = `${process.env.FRONTEND_URL || 'https://ccb.site.je'}/indexxxx.html?code_ref=${reference}`;
+    const callbackUrl = `${process.env.FRONTEND_URL || 'https://ccb.free.nf'}/success.html?code_ref=${reference}`;
 
     const paystackRes = await fetch('https://api.paystack.co/transaction/initialize', {
       method: 'POST',
