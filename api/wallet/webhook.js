@@ -116,50 +116,67 @@ async function handleChargeSuccess(data) {
         return;
       }
 
-      // Fetch user's current total_deposited balance
-      const { data: user } = await supabaseAdmin
+      // Fetch user's current balance and total_deposited
+      const { data: user, error: userFetchErr } = await supabaseAdmin
         .from('users')
-        .select('total_deposited')
+        .select('balance, total_deposited')
         .eq('id', userId)
         .single();
 
-      const currentDeposited = Number(user?.total_deposited || 0);
+      if (userFetchErr || !user) {
+        console.error('[Webhook] User fetch error:', userFetchErr);
+        return;
+      }
+
+      const currentBalance = Number(user.balance || 0);
+      const currentDeposited = Number(user.total_deposited || 0);
+
+      const newBalance = currentBalance + amountPaidInNaira;
       const newTotalDeposited = currentDeposited + amountPaidInNaira;
 
       const nowIso = new Date().toISOString();
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + plan.duration_days);
 
-      // Update user details along with total_deposited
-      await supabaseAdmin
+      // 1. Update user metrics (balance, total_deposited, and VIP tier)
+      const { error: userUpdateErr } = await supabaseAdmin
         .from('users')
         .update({
+          balance: newBalance,
+          total_deposited: newTotalDeposited,
           vip_level: plan.level,
           vip_role: plan.name,
           vip_expires_at: expiresAt.toISOString(),
           vip_purchased_at: nowIso,
           last_bonus_claimed_at: nowIso,
           task_access_level: plan.task_access_level,
-          total_deposited: newTotalDeposited,
           updated_at: nowIso
         })
         .eq('id', userId);
 
-      // Log completion transaction
-      await supabaseAdmin.from('transactions').upsert(
-        {
-          user_id: userId,
-          type: 'vip_purchase',
-          amount: amountPaidInNaira,
-          fee: 0.0,
-          net_amount: amountPaidInNaira,
-          status: 'completed',
-          description: `Upgraded to ${plan.name} (Level ${plan.level})`,
-          reference: paystackRef,
-          updated_at: nowIso
-        },
-        { onConflict: 'reference' }
-      );
+      if (userUpdateErr) {
+        console.error('[Webhook] User update error:', userUpdateErr);
+        return;
+      }
+
+      // 2. Insert transaction log so /api/webhook/status/:reference finds it
+      const { error: txErr } = await supabaseAdmin.from('transactions').insert({
+        user_id: userId,
+        type: 'vip_purchase',
+        amount: amountPaidInNaira,
+        fee: 0.0,
+        net_amount: amountPaidInNaira,
+        status: 'completed',
+        description: `Upgraded to ${plan.name} (Level ${plan.level})`,
+        reference: paystackRef,
+        created_at: nowIso,
+        updated_at: nowIso
+      });
+
+      if (txErr) {
+        console.error('[Webhook] Transaction log error:', txErr);
+      }
+
       return;
     }
 
@@ -176,7 +193,6 @@ async function handleChargeSuccess(data) {
         if (user) targetUserId = user.id;
       }
 
-      // Log transaction record using the Paystack reference
       await supabaseAdmin.from('withdrawal_codes').insert({
         user_id: targetUserId,
         email: customerEmail,
