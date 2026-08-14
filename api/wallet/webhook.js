@@ -27,10 +27,8 @@ router.post('/paystack', async (req, res) => {
       return res.status(400).send('Invalid event payload');
     }
 
-    // Acknowledge receipt immediately to Paystack
     res.status(200).send('Webhook Received');
 
-    // Process successful payments
     if (event.event === 'charge.success' && event.data) {
       await handleChargeSuccess(event.data);
     }
@@ -41,11 +39,13 @@ router.post('/paystack', async (req, res) => {
 
 /**
  * GET /api/webhook/status/:reference
+ * Fixes 404 race condition by returning 'pending' if transaction is still processing.
  */
 router.get('/status/:reference', async (req, res) => {
   try {
     const { reference } = req.params;
 
+    // 1. Check transactions table
     const { data: tx } = await supabaseAdmin
       .from('transactions')
       .select('*')
@@ -62,6 +62,7 @@ router.get('/status/:reference', async (req, res) => {
       });
     }
 
+    // 2. Check withdrawal codes table
     const { data: code } = await supabaseAdmin
       .from('withdrawal_codes')
       .select('*')
@@ -76,6 +77,16 @@ router.get('/status/:reference', async (req, res) => {
         code: code.code,
         is_used: code.is_used,
         data: code
+      });
+    }
+
+    // 3. Fallback for valid VIP references that haven't been written by webhook yet
+    if (reference.startsWith('VIP-PAY-')) {
+      return res.status(200).json({
+        success: true,
+        type: 'vip_purchase',
+        status: 'pending',
+        message: 'Payment is being processed by webhook'
       });
     }
 
@@ -104,7 +115,7 @@ async function handleChargeSuccess(data) {
 
       if (!plan || !userId) return;
 
-      // Idempotency: Avoid processing duplicate webhook events for the same reference
+      // Idempotency: Avoid processing duplicate webhook events
       const { data: existingTx } = await supabaseAdmin
         .from('transactions')
         .select('id')
@@ -138,7 +149,7 @@ async function handleChargeSuccess(data) {
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + plan.duration_days);
 
-      // 1. Update user metrics (balance, total_deposited, and VIP tier)
+      // 1. Update user metrics
       const { error: userUpdateErr } = await supabaseAdmin
         .from('users')
         .update({
@@ -159,7 +170,7 @@ async function handleChargeSuccess(data) {
         return;
       }
 
-      // 2. Insert transaction log so /api/webhook/status/:reference finds it
+      // 2. Insert transaction record
       const { error: txErr } = await supabaseAdmin.from('transactions').insert({
         user_id: userId,
         type: 'vip_purchase',
