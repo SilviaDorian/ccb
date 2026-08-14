@@ -7,7 +7,7 @@ const router = express.Router();
 
 export const VIP_PLANS = {
   1: { name: 'Beginner', level: 1, price: 100, duration_days: 60, daily_bonus: 800, task_access_level: 1, description: 'Entry level for new users. Access to basic tasks.' },
-  2: { name: 'Novice', level: 2, price: 7000, duration_days: 60, daily_bonus: 1400, task_access_level: 2, description: 'Intermediate tier with enhanced daily earnings.' },
+  2: { name: 'Novice', level: 2, price: 150, duration_days: 60, daily_bonus: 1400, task_access_level: 2, description: 'Intermediate tier with enhanced daily earnings.' },
   3: { name: 'Intermediate', level: 3, price: 10000, duration_days: 60, daily_bonus: 2000, task_access_level: 3, description: 'Better paying tasks and higher commission rates.' },
   4: { name: 'Advanced', level: 4, price: 25000, duration_days: 60, daily_bonus: 5000, task_access_level: 4, description: 'Higher rewards and priority task access.' },
   5: { name: 'Expert', level: 5, price: 50000, duration_days: 60, daily_bonus: 10000, task_access_level: 5, description: 'Premium tasks with top-tier daily bonus earnings.' },

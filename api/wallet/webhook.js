@@ -8,7 +8,7 @@ const router = express.Router();
  */
 const VIP_PLANS = {
   1: { name: 'Beginner', level: 1, price: 100, duration_days: 60, task_access_level: 1 },
-  2: { name: 'Novice', level: 2, price: 7000, duration_days: 60, task_access_level: 2 },
+  2: { name: 'Novice', level: 2, price: 150, duration_days: 60, task_access_level: 2 },
   3: { name: 'Intermediate', level: 3, price: 10000, duration_days: 60, task_access_level: 3 },
   4: { name: 'Advanced', level: 4, price: 25000, duration_days: 60, task_access_level: 4 },
   5: { name: 'Expert', level: 5, price: 50000, duration_days: 60, task_access_level: 5 },
@@ -104,10 +104,33 @@ async function handleChargeSuccess(data) {
 
       if (!plan || !userId) return;
 
+      // Idempotency: Avoid processing duplicate webhook events for the same reference
+      const { data: existingTx } = await supabaseAdmin
+        .from('transactions')
+        .select('id')
+        .eq('reference', paystackRef)
+        .maybeSingle();
+
+      if (existingTx) {
+        console.log(`[Webhook] Payment ref ${paystackRef} already processed.`);
+        return;
+      }
+
+      // Fetch user's current total_deposited balance
+      const { data: user } = await supabaseAdmin
+        .from('users')
+        .select('total_deposited')
+        .eq('id', userId)
+        .single();
+
+      const currentDeposited = Number(user?.total_deposited || 0);
+      const newTotalDeposited = currentDeposited + amountPaidInNaira;
+
       const nowIso = new Date().toISOString();
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + plan.duration_days);
 
+      // Update user details along with total_deposited
       await supabaseAdmin
         .from('users')
         .update({
@@ -117,10 +140,12 @@ async function handleChargeSuccess(data) {
           vip_purchased_at: nowIso,
           last_bonus_claimed_at: nowIso,
           task_access_level: plan.task_access_level,
+          total_deposited: newTotalDeposited,
           updated_at: nowIso
         })
         .eq('id', userId);
 
+      // Log completion transaction
       await supabaseAdmin.from('transactions').upsert(
         {
           user_id: userId,
