@@ -17,6 +17,7 @@ import referralStatsHandler from './referrals/stats.js';
 //import tasksSubmitHandler from './tasks/submit.js';
 
 import userDashboardHandler from './user/dashboard.js';
+import marketplaceRouter from './task/marketplace.js';
 import userProfileHandler from './user/profile.js';
 import bonusRouter from './wallet/bonus.js';
 import videosRouter from './task/videos.js'; 
@@ -91,6 +92,7 @@ app.use('/api/surveys', surveysRouter);
 app.use('/api/webhook', webhookRouter);
 app.use('/api/wallet/withdraw', withdrawRouter);
 app.use('/api/wallet', withdrawRouter);
+app.use('/api/marketplace', marketplaceRouter);
 app.use('/api/upgrade', upgradeRouter);
 app.use('/api/vip', upgradeRouter);
 
