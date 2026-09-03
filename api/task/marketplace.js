@@ -14,8 +14,8 @@ const PROHIBITED_KEYWORDS = [
 
 // Subscription Rates (Months 1 through 12 mapped to Amount in NGN)
 const SUBSCRIPTION_RATES = {
-  1: 1500,
-  2: 2500,
+  1: 100,
+  2: 200,
   3: 4500,
   4: 5500,
   5: 6800,
@@ -25,7 +25,7 @@ const SUBSCRIPTION_RATES = {
   9: 11800,
   10: 13000,
   11: 14000,
-  12: 15000
+  12: 150
 };
 
 // Guard function
