@@ -39,7 +39,7 @@ router.post('/paystack', async (req, res) => {
 
 /**
  * GET /api/webhook/status/:reference
- * Fixes 404 race condition by returning 'pending' if transaction is still processing.
+ * Returns status or pending fallback to avoid race condition windows
  */
 router.get('/status/:reference', async (req, res) => {
   try {
@@ -80,13 +80,23 @@ router.get('/status/:reference', async (req, res) => {
       });
     }
 
-    // 3. Fallback for valid VIP references that haven't been written by webhook yet
+    // 3. Fallback for valid VIP references processing
     if (reference.startsWith('VIP-PAY-')) {
       return res.status(200).json({
         success: true,
         type: 'vip_purchase',
         status: 'pending',
         message: 'Payment is being processed by webhook'
+      });
+    }
+
+    // 4. Fallback for Marketplace Subscription references processing
+    if (reference.startsWith('MARKET-') || reference.startsWith('SUB-')) {
+      return res.status(200).json({
+        success: true,
+        type: 'marketplace_subscription',
+        status: 'pending',
+        message: 'Marketplace subscription payment is being processed'
       });
     }
 
@@ -107,7 +117,85 @@ async function handleChargeSuccess(data) {
     const metadata = data.metadata || {};
     const customerEmail = data.customer?.email;
 
-    // CASE 1: VIP UPGRADE PAYMENT
+    // CASE 1: MARKETPLACE SELLER SUBSCRIPTION
+    if (metadata.payment_type === 'marketplace_subscription') {
+      const userId = metadata.user_id;
+      const months = Number(metadata.months || metadata.subscription_months || 1);
+
+      if (!userId) return;
+
+      // Idempotency Check
+      const { data: existingTx } = await supabaseAdmin
+        .from('transactions')
+        .select('id')
+        .eq('reference', paystackRef)
+        .maybeSingle();
+
+      if (existingTx) {
+        console.log(`[Webhook] Marketplace ref ${paystackRef} already processed.`);
+        return;
+      }
+
+      // Fetch user
+      const { data: user, error: userFetchErr } = await supabaseAdmin
+        .from('users')
+        .select('marketplace_sub_expires_at')
+        .eq('id', userId)
+        .single();
+
+      if (userFetchErr || !user) {
+        console.error('[Webhook] User fetch error (Marketplace):', userFetchErr);
+        return;
+      }
+
+      // Calculate expiration date
+      const currentDate = new Date();
+      let baseDate = currentDate;
+
+      if (user.marketplace_sub_expires_at) {
+        const existingExpiry = new Date(user.marketplace_sub_expires_at);
+        if (existingExpiry > currentDate) {
+          baseDate = existingExpiry;
+        }
+      }
+
+      const newExpiry = new Date(baseDate);
+      newExpiry.setMonth(newExpiry.getMonth() + months);
+      const nowIso = currentDate.toISOString();
+
+      // Update seller subscription
+      const { error: userUpdateErr } = await supabaseAdmin
+        .from('users')
+        .update({
+          marketplace_sub_active: true,
+          marketplace_sub_expires_at: newExpiry.toISOString(),
+          updated_at: nowIso
+        })
+        .eq('id', userId);
+
+      if (userUpdateErr) {
+        console.error('[Webhook] Marketplace subscription update error:', userUpdateErr);
+        return;
+      }
+
+      // Record transaction
+      await supabaseAdmin.from('transactions').insert({
+        user_id: userId,
+        type: 'marketplace_subscription',
+        amount: amountPaidInNaira,
+        fee: 0.0,
+        net_amount: amountPaidInNaira,
+        status: 'completed',
+        description: `Marketplace Seller Access (${months} Month${months > 1 ? 's' : ''})`,
+        reference: paystackRef,
+        created_at: nowIso,
+        updated_at: nowIso
+      });
+
+      return;
+    }
+
+    // CASE 2: VIP UPGRADE PAYMENT
     if (metadata.payment_type === 'vip_upgrade' || metadata.plan_id) {
       const userId = metadata.user_id;
       const planId = Number(metadata.plan_id);
@@ -115,7 +203,6 @@ async function handleChargeSuccess(data) {
 
       if (!plan || !userId) return;
 
-      // Idempotency: Avoid processing duplicate webhook events
       const { data: existingTx } = await supabaseAdmin
         .from('transactions')
         .select('id')
@@ -127,7 +214,6 @@ async function handleChargeSuccess(data) {
         return;
       }
 
-      // Fetch user's current balance and total_deposited
       const { data: user, error: userFetchErr } = await supabaseAdmin
         .from('users')
         .select('balance, total_deposited')
@@ -149,7 +235,6 @@ async function handleChargeSuccess(data) {
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + plan.duration_days);
 
-      // 1. Update user metrics
       const { error: userUpdateErr } = await supabaseAdmin
         .from('users')
         .update({
@@ -170,7 +255,6 @@ async function handleChargeSuccess(data) {
         return;
       }
 
-      // 2. Insert transaction record
       const { error: txErr } = await supabaseAdmin.from('transactions').insert({
         user_id: userId,
         type: 'vip_purchase',
@@ -191,7 +275,7 @@ async function handleChargeSuccess(data) {
       return;
     }
 
-    // CASE 2: NON-VIP WITHDRAWAL CODE FEE PAYMENT
+    // CASE 3: NON-VIP WITHDRAWAL CODE FEE PAYMENT
     if (metadata.payment_type === 'withdrawal_code_fee' || amountPaidInNaira >= 150) {
       let targetUserId = metadata.user_id || null;
 
