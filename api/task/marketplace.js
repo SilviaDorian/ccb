@@ -12,20 +12,23 @@ const PROHIBITED_KEYWORDS = [
   "cannabis", "weed", "tramadol", "codeine", "stolen", "counterfeit"
 ];
 
+// Valid database statuses based on schema constraint
+const ALLOWED_STATUSES = ['active', 'sold', 'out_of_stock', 'expired', 'pending_payment'];
+
 // Subscription Rates (Months 1 through 12 mapped to Amount in NGN)
 const SUBSCRIPTION_RATES = {
-  1: 100,
-  2: 200,
-  3: 4500,
-  4: 5500,
-  5: 6800,
-  6: 8000,
-  7: 9200,
-  8: 10500,
-  9: 11800,
-  10: 13000,
-  11: 14000,
-  12: 150
+  1: 1000,
+  2: 1900,
+  3: 2700,
+  4: 3500,
+  5: 4250,
+  6: 5000,
+  7: 5750,
+  8: 6400,
+  9: 7000,
+  10: 7600,
+  11: 8150,
+  12: 8500
 };
 
 // Guard function
@@ -40,6 +43,11 @@ function containsProhibitedItems(title, description) {
  */
 router.get('/check-subscription', requireAuth, async (req, res) => {
   try {
+    // Prevent 304 browser caching on authentication state checks
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
     const userId = req.user.id;
 
     const { data, error: dbError } = await supabaseAdmin
@@ -65,7 +73,7 @@ router.get('/check-subscription', requireAuth, async (req, res) => {
 
 /**
  * GET /api/marketplace/listings
- * Retrieves active marketplace items with filters
+ * Retrieves active marketplace items for public browsing with filters
  */
 router.get('/listings', async (req, res) => {
   try {
@@ -108,8 +116,35 @@ router.get('/listings', async (req, res) => {
 });
 
 /**
+ * GET /api/marketplace/my-listings
+ * Fetches all listings belonging to the authenticated seller regardless of status
+ */
+router.get('/my-listings', requireAuth, async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    const userId = req.user.id;
+
+    const { data, error: dbError } = await supabaseAdmin
+      .from('marketplace_listings')
+      .select('*')
+      .eq('seller_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (dbError) {
+      console.error('Fetch seller listings error:', dbError);
+      return error(res, 'Failed to retrieve your listings', 500);
+    }
+
+    return success(res, data || []);
+  } catch (err) {
+    console.error('Seller listings error:', err);
+    return error(res, 'Internal server error', 500);
+  }
+});
+
+/**
  * POST /api/marketplace/create
- * Creates a marketplace listing (auto-activates if subscription is active, otherwise requires payment)
+ * Creates a marketplace listing (auto-activates if active plan running, else pending_payment)
  */
 router.post('/create', requireAuth, async (req, res) => {
   try {
@@ -132,14 +167,14 @@ router.post('/create', requireAuth, async (req, res) => {
 
     const user = req.user;
 
-    // Required fields check
+    // Mandatory inputs check
     if (!title || !description || !amount || !location || !primary_phone || !image_url_1) {
       return error(res, 'Missing required fields. Title, location, phone, and main image are mandatory.', 400);
     }
 
-    // Blacklist validation
+    // Blacklist check
     if (containsProhibitedItems(title, description)) {
-      return error(res, 'Listing rejected. Prohibited items detected (weapons, firearms, or drugs).', 422);
+      return error(res, 'Listing rejected. Prohibited items detected.', 422);
     }
 
     const subFee = SUBSCRIPTION_RATES[subscription_months];
@@ -147,7 +182,7 @@ router.post('/create', requireAuth, async (req, res) => {
       return error(res, 'Invalid subscription period selected.', 400);
     }
 
-    // Check if seller has an active plan running
+    // Active subscription check
     const { data: activeListings } = await supabaseAdmin
       .from('marketplace_listings')
       .select('subscription_expires_at')
@@ -161,7 +196,7 @@ router.post('/create', requireAuth, async (req, res) => {
 
     const listing_id = 'CCB-MKT-' + Math.floor(100000 + Math.random() * 900000);
     
-    // Calculate expiry timestamp
+    // Expiry timestamp calculation
     const expiryDate = new Date();
     expiryDate.setMonth(expiryDate.getMonth() + parseInt(subscription_months));
 
@@ -216,24 +251,48 @@ router.post('/create', requireAuth, async (req, res) => {
 
 /**
  * PATCH /api/marketplace/update/:listing_id
- * Updates availability status or listing details
+ * Updates availability status, price, inventory units, or images
+ */
+/**
+ * PATCH /api/marketplace/update/:listing_id
+ * Updates availability status, price, inventory units, images, or details
  */
 router.patch('/update/:listing_id', requireAuth, async (req, res) => {
   try {
     const { listing_id } = req.params;
     const userId = req.user.id;
 
-    const allowedUpdates = ['status', 'amount', 'units', 'description', 'primary_phone', 'secondary_phone'];
+    const allowedUpdates = [
+      'status', 
+      'amount', 
+      'units', 
+      'description', 
+      'primary_phone', 
+      'secondary_phone',
+      'image_url_1',
+      'image_url_2',
+      'image_url_3',
+      'is_available'
+    ];
+    
     const updates = {};
 
     for (const field of allowedUpdates) {
       if (req.body[field] !== undefined) {
+        if (field === 'status' && !ALLOWED_STATUSES.includes(req.body.status)) {
+          return error(res, `Invalid status value. Allowed: ${ALLOWED_STATUSES.join(', ')}`, 400);
+        }
         updates[field] = req.body[field];
       }
     }
 
+    // Automatically align boolean flag if status is updated
+    if (updates.status) {
+      updates.is_available = updates.status === 'active';
+    }
+
     if (Object.keys(updates).length === 0) {
-      return error(res, 'No fields provided for update', 400);
+      return error(res, 'No valid fields provided for update', 400);
     }
 
     updates.updated_at = new Date().toISOString();
@@ -259,8 +318,40 @@ router.patch('/update/:listing_id', requireAuth, async (req, res) => {
 });
 
 /**
+ * DELETE /api/marketplace/delete/:listing_id
+ * Deletes a listing owned by the authenticated seller
+ */
+router.delete('/delete/:listing_id', requireAuth, async (req, res) => {
+  try {
+    const { listing_id } = req.params;
+    const userId = req.user.id;
+
+    const { data, error: deleteError } = await supabaseAdmin
+      .from('marketplace_listings')
+      .delete()
+      .eq('listing_id', listing_id)
+      .eq('seller_id', userId)
+      .select();
+
+    if (deleteError) {
+      console.error('Delete listing error:', deleteError);
+      return error(res, 'Failed to delete listing or unauthorized', 500);
+    }
+
+    if (!data || data.length === 0) {
+      return error(res, 'Listing not found or unauthorized', 404);
+    }
+
+    return success(res, null, 'Listing deleted successfully');
+  } catch (err) {
+    console.error('Delete listing error:', err);
+    return error(res, 'Internal server error', 500);
+  }
+});
+
+/**
  * POST /api/marketplace/view/:listing_id
- * Public endpoint to increment listing views
+ * Public endpoint to increment listing view metrics
  */
 router.post('/view/:listing_id', async (req, res) => {
   try {
