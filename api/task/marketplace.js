@@ -12,12 +12,19 @@ const PROHIBITED_KEYWORDS = [
   "cannabis", "weed", "tramadol", "codeine", "stolen", "counterfeit"
 ];
 
-// Subscription Rates (Months to Amount)
+// Subscription Rates (Months 1 through 12 mapped to Amount in NGN)
 const SUBSCRIPTION_RATES = {
   1: 1500,
   2: 2500,
   3: 4500,
+  4: 5500,
+  5: 6800,
   6: 8000,
+  7: 9200,
+  8: 10500,
+  9: 11800,
+  10: 13000,
+  11: 14000,
   12: 15000
 };
 
@@ -26,6 +33,35 @@ function containsProhibitedItems(title, description) {
   const fullText = `${title} ${description}`.toLowerCase();
   return PROHIBITED_KEYWORDS.some(keyword => fullText.includes(keyword));
 }
+
+/**
+ * GET /api/marketplace/check-subscription
+ * Verifies if the authenticated seller has an active, non-expired subscription
+ */
+router.get('/check-subscription', requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const { data, error: dbError } = await supabaseAdmin
+      .from('marketplace_listings')
+      .select('subscription_expires_at, status')
+      .eq('seller_id', userId)
+      .eq('status', 'active')
+      .gt('subscription_expires_at', new Date().toISOString())
+      .limit(1);
+
+    if (dbError) {
+      console.error('Subscription check DB error:', dbError);
+      return error(res, 'Failed to verify subscription status', 500);
+    }
+
+    const hasActiveSubscription = Boolean(data && data.length > 0);
+    return success(res, { hasActiveSubscription });
+  } catch (err) {
+    console.error('Check subscription error:', err);
+    return error(res, 'Internal server error', 500);
+  }
+});
 
 /**
  * GET /api/marketplace/listings
@@ -73,7 +109,7 @@ router.get('/listings', async (req, res) => {
 
 /**
  * POST /api/marketplace/create
- * Creates a pending marketplace listing for payment verification
+ * Creates a marketplace listing (auto-activates if subscription is active, otherwise requires payment)
  */
 router.post('/create', requireAuth, async (req, res) => {
   try {
@@ -111,6 +147,18 @@ router.post('/create', requireAuth, async (req, res) => {
       return error(res, 'Invalid subscription period selected.', 400);
     }
 
+    // Check if seller has an active plan running
+    const { data: activeListings } = await supabaseAdmin
+      .from('marketplace_listings')
+      .select('subscription_expires_at')
+      .eq('seller_id', user.id)
+      .eq('status', 'active')
+      .gt('subscription_expires_at', new Date().toISOString())
+      .limit(1);
+
+    const hasActiveSub = Boolean(activeListings && activeListings.length > 0);
+    const initialStatus = hasActiveSub ? 'active' : 'pending_payment';
+
     const listing_id = 'CCB-MKT-' + Math.floor(100000 + Math.random() * 900000);
     
     // Calculate expiry timestamp
@@ -136,7 +184,7 @@ router.post('/create', requireAuth, async (req, res) => {
       image_url_1,
       image_url_2: image_url_2 || null,
       image_url_3: image_url_3 || null,
-      status: 'pending_payment',
+      status: initialStatus,
       subscription_plan: `${subscription_months}_months`,
       subscription_expires_at: expiryDate.toISOString()
     };
@@ -154,9 +202,11 @@ router.post('/create', requireAuth, async (req, res) => {
 
     return success(res, {
       listing: data,
+      listing_id,
+      requires_payment: !hasActiveSub,
       payment_required: subFee,
       currency: 'NGN'
-    }, 'Listing initialized. Proceed with subscription payment.');
+    }, hasActiveSub ? 'Listing created and activated successfully.' : 'Listing initialized. Proceed with subscription payment.');
 
   } catch (err) {
     console.error('Create listing error:', err);
