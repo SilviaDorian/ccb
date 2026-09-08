@@ -13,7 +13,7 @@ const PROHIBITED_KEYWORDS = [
 ];
 
 // Valid database statuses based on schema constraint
-const ALLOWED_STATUSES = ['active', 'sold', 'out_of_stock', 'expired', 'pending_payment'];
+const ALLOWED_STATUSES = ['available', 'sold', 'out_of_stock', 'expired', 'pending_payment'];
 
 // Subscription Rates (Months 1 through 12 mapped to Amount in NGN)
 const SUBSCRIPTION_RATES = {
@@ -253,10 +253,7 @@ router.post('/create', requireAuth, async (req, res) => {
  * PATCH /api/marketplace/update/:listing_id
  * Updates availability status, price, inventory units, or images
  */
-/**
- * PATCH /api/marketplace/update/:listing_id
- * Updates availability status, price, inventory units, images, or details
- */
+
 router.patch('/update/:listing_id', requireAuth, async (req, res) => {
   try {
     const { listing_id } = req.params;
@@ -271,8 +268,7 @@ router.patch('/update/:listing_id', requireAuth, async (req, res) => {
       'secondary_phone',
       'image_url_1',
       'image_url_2',
-      'image_url_3',
-      'is_available'
+      'image_url_3'
     ];
     
     const updates = {};
@@ -286,11 +282,6 @@ router.patch('/update/:listing_id', requireAuth, async (req, res) => {
       }
     }
 
-    // Automatically align boolean flag if status is updated
-    if (updates.status) {
-      updates.is_available = updates.status === 'active';
-    }
-
     if (Object.keys(updates).length === 0) {
       return error(res, 'No valid fields provided for update', 400);
     }
@@ -302,21 +293,23 @@ router.patch('/update/:listing_id', requireAuth, async (req, res) => {
       .update(updates)
       .eq('listing_id', listing_id)
       .eq('seller_id', userId)
-      .select()
-      .single();
+      .select();
 
     if (updateError) {
       console.error('Update listing DB error:', updateError);
-      return error(res, 'Failed to update listing or unauthorized', 500);
+      return error(res, `Failed to update listing: ${updateError.message}`, 500);
     }
 
-    return success(res, data, 'Listing updated successfully');
+    if (!data || data.length === 0) {
+      return error(res, 'Listing not found or unauthorized to make changes', 404);
+    }
+
+    return success(res, data[0], 'Listing updated successfully');
   } catch (err) {
     console.error('Update listing error:', err);
     return error(res, 'Internal server error', 500);
   }
 });
-
 /**
  * DELETE /api/marketplace/delete/:listing_id
  * Deletes a listing owned by the authenticated seller
