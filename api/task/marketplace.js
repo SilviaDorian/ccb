@@ -13,7 +13,7 @@ const PROHIBITED_KEYWORDS = [
 ];
 
 // Valid database statuses based on schema constraint
-const ALLOWED_STATUSES = ['available', 'sold', 'out_of_stock', 'expired', 'pending_payment'];
+const ALLOWED_STATUSES = ['available', 'sold', 'active', 'out_of_stock', 'expired', 'pending_payment'];
 
 // Subscription Rates (Months 1 through 12 mapped to Amount in NGN)
 const SUBSCRIPTION_RATES = {
@@ -77,20 +77,24 @@ router.get('/check-subscription', requireAuth, async (req, res) => {
 
 /**
  * GET /api/marketplace/listings
- * Retrieves active marketplace items for public browsing with filters
+ * Retrieves active marketplace items for public browsing with category and subcategory filters
  */
 router.get('/listings', async (req, res) => {
   try {
-    const { category, search, sort } = req.query;
+    const { category, subcategory, search, sort } = req.query;
 
     let query = supabaseAdmin
       .from('marketplace_listings')
       .select('*')
-      .eq('status', 'active')
+      .in('status', ['active', 'out_of_stock', 'pending_payment', 'sold', 'expired', 'available'])
       .gt('subscription_expires_at', new Date().toISOString());
 
     if (category) {
       query = query.eq('category', category);
+    }
+
+    if (subcategory) {
+      query = query.eq('subcategory', subcategory);
     }
 
     if (search) {
@@ -148,13 +152,14 @@ router.get('/my-listings', requireAuth, async (req, res) => {
 
 /**
  * POST /api/marketplace/create
- * Creates a marketplace listing (auto-activates if active plan running, else pending_payment)
+ * Creates a marketplace listing using category and subcategory from req.body
  */
 router.post('/create', requireAuth, async (req, res) => {
   try {
     const {
       title,
       category,
+      subcategory,
       product_type,
       description,
       amount,
@@ -171,9 +176,12 @@ router.post('/create', requireAuth, async (req, res) => {
 
     const user = req.user;
 
-    // Mandatory inputs check
-    if (!title || !description || !amount || !location || !primary_phone || !image_url_1) {
-      return error(res, 'Missing required fields. Title, location, phone, and main image are mandatory.', 400);
+    // Resolve subcategory value from incoming body keys
+    const resolvedSubcategory = subcategory || product_type;
+
+    // Mandatory inputs check (requiring title, category, subcategory, description, amount, etc.)
+    if (!title || !category || !resolvedSubcategory || !description || !amount || !location || !primary_phone || !image_url_1) {
+      return error(res, 'Missing required fields. Title, Category, Subcategory, Location, Phone, and Main Image are mandatory.', 400);
     }
 
     // Blacklist check
@@ -214,8 +222,9 @@ router.post('/create', requireAuth, async (req, res) => {
       seller_id: user.id,
       seller_name: sellerName,
       title,
-      category: category || 'General',
-      product_type: product_type || 'General',
+      category,
+      subcategory: resolvedSubcategory,
+      product_type: product_type || resolvedSubcategory,
       description,
       amount,
       units: units || 1,
@@ -258,7 +267,7 @@ router.post('/create', requireAuth, async (req, res) => {
 
 /**
  * PATCH /api/marketplace/update/:listing_id
- * Updates availability status, price, inventory units, or images
+ * Updates availability status, category, subcategory, price, inventory units, or images
  */
 router.patch('/update/:listing_id', requireAuth, async (req, res) => {
   try {
@@ -266,6 +275,10 @@ router.patch('/update/:listing_id', requireAuth, async (req, res) => {
     const userId = req.user.id;
 
     const allowedUpdates = [
+      'title',
+      'category',
+      'subcategory',
+      'product_type',
       'status', 
       'amount', 
       'units', 
