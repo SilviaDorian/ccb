@@ -122,7 +122,10 @@ async function handleChargeSuccess(data) {
       const userId = metadata.user_id;
       const months = Number(metadata.months || metadata.subscription_months || 1);
 
-      if (!userId) return;
+      if (!userId) {
+        console.error('[Webhook] Missing user_id in Paystack metadata for marketplace subscription');
+        return;
+      }
 
       // Idempotency Check
       const { data: existingTx } = await supabaseAdmin
@@ -136,15 +139,19 @@ async function handleChargeSuccess(data) {
         return;
       }
 
-      // Fetch user
+      // Determine query column dynamically based on identifier format (UUID vs BIGINT)
+      const isUuid = typeof userId === 'string' && userId.includes('-');
+      const queryColumn = isUuid ? 'uuid' : 'id';
+
+      // Fetch user using user_id
       const { data: user, error: userFetchErr } = await supabaseAdmin
         .from('users')
-        .select('subscription_expires_at')
-        .eq('id', userId)
+        .select('id, uuid, subscription_expires_at')
+        .eq(queryColumn, userId)
         .single();
 
       if (userFetchErr || !user) {
-        console.error('[Webhook] User fetch error (Marketplace):', userFetchErr);
+        console.error(`[Webhook] User fetch error (Marketplace) for ${queryColumn}=${userId}:`, userFetchErr);
         return;
       }
 
@@ -163,14 +170,15 @@ async function handleChargeSuccess(data) {
       newExpiry.setMonth(newExpiry.getMonth() + months);
       const nowIso = currentDate.toISOString();
 
-      // Update seller subscription on users table
+      // Update seller subscription fields matching database schema
       const { error: userUpdateErr } = await supabaseAdmin
         .from('users')
         .update({
           subscription_expires_at: newExpiry.toISOString(),
+          subscription_plan: `${months}_months`,
           updated_at: nowIso
         })
-        .eq('id', userId);
+        .eq('id', user.id);
 
       if (userUpdateErr) {
         console.error('[Webhook] Marketplace subscription update error:', userUpdateErr);
@@ -179,7 +187,7 @@ async function handleChargeSuccess(data) {
 
       // Record transaction
       await supabaseAdmin.from('transactions').insert({
-        user_id: userId,
+        user_id: user.id,
         type: 'marketplace_subscription',
         amount: amountPaidInNaira,
         fee: 0.0,
@@ -191,6 +199,7 @@ async function handleChargeSuccess(data) {
         updated_at: nowIso
       });
 
+      console.log(`[Webhook] Marketplace subscription successfully processed for user_id=${user.id}`);
       return;
     }
 
