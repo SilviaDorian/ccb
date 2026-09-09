@@ -154,11 +154,17 @@ router.get('/my-listings', requireAuth, async (req, res) => {
  * POST /api/marketplace/create
  * Creates a marketplace listing using category and subcategory from req.body
  */
+/**
+ * POST /api/marketplace/create
+ * Creates a marketplace listing using category and subcategory from req.body
+ */
 router.post('/create', requireAuth, async (req, res) => {
   try {
     const {
       title,
       category,
+      category_name, // Read potential alternative payload keys
+      category_id,
       subcategory,
       product_type,
       description,
@@ -176,11 +182,12 @@ router.post('/create', requireAuth, async (req, res) => {
 
     const user = req.user;
 
-    // Resolve subcategory value from incoming body keys
+    // Resolving subcategory and category dynamically
+    const resolvedCategory = category || category_name || category_id;
     const resolvedSubcategory = subcategory || product_type;
 
-    // Mandatory inputs check (requiring title, category, subcategory, description, amount, etc.)
-    if (!title || !category || !resolvedSubcategory || !description || !amount || !location || !primary_phone || !image_url_1) {
+    // Mandatory inputs check with resolved values
+    if (!title || !resolvedCategory || !resolvedSubcategory || !description || !amount || !location || !primary_phone || !image_url_1) {
       return error(res, 'Missing required fields. Title, Category, Subcategory, Location, Phone, and Main Image are mandatory.', 400);
     }
 
@@ -222,7 +229,7 @@ router.post('/create', requireAuth, async (req, res) => {
       seller_id: user.id,
       seller_name: sellerName,
       title,
-      category,
+      category: resolvedCategory,
       subcategory: resolvedSubcategory,
       product_type: product_type || resolvedSubcategory,
       description,
