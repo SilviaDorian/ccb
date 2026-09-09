@@ -13,7 +13,8 @@ emailjs.init({
 });
 
 /**
- * Helper: Validates if today is the user's allowed monthly withdrawal day.
+ * Helper: Validates if today is the user's allowed monthly withdrawal day
+ * AND ensures the account is at least 30 days old.
  * VIP -> Based on vip_purchased_at
  * Non-VIP -> Based on created_at (Registration Date)
  * Testing Exception -> mitounamadike@gmail.com bypasses all date restrictions.
@@ -25,6 +26,7 @@ function checkWithdrawalDateEligibility(user) {
       isAllowed: true,
       targetDay: new Date().getDate(),
       currentDay: new Date().getDate(),
+      accountAgeDays: 30,
       accountType: 'Testing Exception (Unlimited Access)'
     };
   }
@@ -34,25 +36,31 @@ function checkWithdrawalDateEligibility(user) {
 
   if (!baseDateString) {
     // Fallback if date field is missing
-    return { isAllowed: true, targetDay: new Date().getDate() };
+    return { isAllowed: true, targetDay: new Date().getDate(), accountAgeDays: 0 };
   }
 
   const baseDate = new Date(baseDateString);
-  const targetDay = baseDate.getDate(); // e.g. 15th of the month
-  
   const today = new Date();
+
+  // Calculate account age in days
+  const diffTime = Math.abs(today - baseDate);
+  const accountAgeDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+  const targetDay = baseDate.getDate(); // e.g. 15th of the month
   const currentDay = today.getDate();
 
   // Special handling for short months (e.g., target day 31st in February)
   const lastDayOfCurrentMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const adjustedTargetDay = Math.min(targetDay, lastDayOfCurrentMonth);
 
-  const isAllowed = currentDay === adjustedTargetDay;
+  // User must match their monthly withdrawal day AND account must be >= 30 days old
+  const isAllowed = currentDay === adjustedTargetDay && accountAgeDays >= 30;
 
   return {
     isAllowed,
     targetDay: adjustedTargetDay,
     currentDay,
+    accountAgeDays,
     accountType: isVip ? 'VIP Purchase Date' : 'Registration Date'
   };
 }
@@ -75,6 +83,7 @@ router.get('/eligibility', requireAuth, async (req, res) => {
         can_withdraw_today: dateCheck.isAllowed,
         allowed_day_of_month: dateCheck.targetDay,
         current_day_of_month: dateCheck.currentDay,
+        account_age_days: dateCheck.accountAgeDays,
         date_source: dateCheck.accountType
       }
     });
