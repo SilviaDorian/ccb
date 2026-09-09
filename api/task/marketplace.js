@@ -17,18 +17,18 @@ const ALLOWED_STATUSES = ['available', 'sold', 'out_of_stock', 'expired', 'pendi
 
 // Subscription Rates (Months 1 through 12 mapped to Amount in NGN)
 const SUBSCRIPTION_RATES = {
-  1: 1000,
-  2: 1900,
+  1: 100,
+  2: 150,
   3: 2700,
   4: 3500,
   5: 4250,
   6: 5000,
-  7: 5750,
+  7: 260,
   8: 6400,
   9: 7000,
   10: 7600,
   11: 8150,
-  12: 8500
+  12: 250
 };
 
 // Guard function
