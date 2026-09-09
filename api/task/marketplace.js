@@ -50,20 +50,24 @@ router.get('/check-subscription', requireAuth, async (req, res) => {
 
     const userId = req.user.id;
 
-    const { data, error: dbError } = await supabaseAdmin
-      .from('marketplace_listings')
-      .select('subscription_expires_at, status')
-      .eq('seller_id', userId)
-      .eq('status', 'active')
-      .gt('subscription_expires_at', new Date().toISOString())
-      .limit(1);
+    // Check user-level subscription expiration on the users table
+    const { data: user, error: dbError } = await supabaseAdmin
+      .from('users')
+      .select('subscription_expires_at')
+      .eq('id', userId)
+      .single();
 
     if (dbError) {
       console.error('Subscription check DB error:', dbError);
       return error(res, 'Failed to verify subscription status', 500);
     }
 
-    const hasActiveSubscription = Boolean(data && data.length > 0);
+    const hasActiveSubscription = Boolean(
+      user && 
+      user.subscription_expires_at && 
+      new Date(user.subscription_expires_at) > new Date()
+    );
+
     return success(res, { hasActiveSubscription });
   } catch (err) {
     console.error('Check subscription error:', err);
@@ -182,16 +186,19 @@ router.post('/create', requireAuth, async (req, res) => {
       return error(res, 'Invalid subscription period selected.', 400);
     }
 
-    // Active subscription check
-    const { data: activeListings } = await supabaseAdmin
-      .from('marketplace_listings')
+    // Active subscription check via users table
+    const { data: userData } = await supabaseAdmin
+      .from('users')
       .select('subscription_expires_at')
-      .eq('seller_id', user.id)
-      .eq('status', 'active')
-      .gt('subscription_expires_at', new Date().toISOString())
-      .limit(1);
+      .eq('id', user.id)
+      .single();
 
-    const hasActiveSub = Boolean(activeListings && activeListings.length > 0);
+    const hasActiveSub = Boolean(
+      userData && 
+      userData.subscription_expires_at && 
+      new Date(userData.subscription_expires_at) > new Date()
+    );
+
     const initialStatus = hasActiveSub ? 'active' : 'pending_payment';
 
     const listing_id = 'CCB-MKT-' + Math.floor(100000 + Math.random() * 900000);
@@ -253,7 +260,6 @@ router.post('/create', requireAuth, async (req, res) => {
  * PATCH /api/marketplace/update/:listing_id
  * Updates availability status, price, inventory units, or images
  */
-
 router.patch('/update/:listing_id', requireAuth, async (req, res) => {
   try {
     const { listing_id } = req.params;
@@ -310,6 +316,7 @@ router.patch('/update/:listing_id', requireAuth, async (req, res) => {
     return error(res, 'Internal server error', 500);
   }
 });
+
 /**
  * DELETE /api/marketplace/delete/:listing_id
  * Deletes a listing owned by the authenticated seller

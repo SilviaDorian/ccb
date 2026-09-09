@@ -139,7 +139,7 @@ async function handleChargeSuccess(data) {
       // Fetch user
       const { data: user, error: userFetchErr } = await supabaseAdmin
         .from('users')
-        .select('marketplace_sub_expires_at')
+        .select('subscription_expires_at')
         .eq('id', userId)
         .single();
 
@@ -152,8 +152,8 @@ async function handleChargeSuccess(data) {
       const currentDate = new Date();
       let baseDate = currentDate;
 
-      if (user.marketplace_sub_expires_at) {
-        const existingExpiry = new Date(user.marketplace_sub_expires_at);
+      if (user.subscription_expires_at) {
+        const existingExpiry = new Date(user.subscription_expires_at);
         if (existingExpiry > currentDate) {
           baseDate = existingExpiry;
         }
@@ -163,12 +163,11 @@ async function handleChargeSuccess(data) {
       newExpiry.setMonth(newExpiry.getMonth() + months);
       const nowIso = currentDate.toISOString();
 
-      // Update seller subscription
+      // Update seller subscription on users table
       const { error: userUpdateErr } = await supabaseAdmin
         .from('users')
         .update({
-          marketplace_sub_active: true,
-          marketplace_sub_expires_at: newExpiry.toISOString(),
+          subscription_expires_at: newExpiry.toISOString(),
           updated_at: nowIso
         })
         .eq('id', userId);
