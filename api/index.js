@@ -32,6 +32,7 @@ import surveysRouter from './task/surveys.js';
 import withdrawRouter from './wallet/withdraw.js';
 import webhookRouter from './wallet/webhook.js';
 import upgradeRouter from './vip/upgrade.js';
+import pdashboardRouter from './user/pdashboard.js';
 
 
 
@@ -104,6 +105,7 @@ app.use('/api/wallet', withdrawRouter);
 app.use('/api/marketplace', marketplaceRouter);
 app.use('/api/upgrade', upgradeRouter);
 app.use('/api/vip', upgradeRouter);
+app.use('/api/user/pdashboard', pdashboardRouter);
 
 
 
