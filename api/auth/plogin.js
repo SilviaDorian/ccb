@@ -62,5 +62,63 @@ router.post('/', async (req, res) => {
   }
 });
 
+
+/**
+ * POST /api/auth/plogin/reset-password
+ * Handles password reset for an account
+ */
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { login, newPassword } = req.body;
+
+    if (!login || !login.trim()) {
+      return error(res, 'Email or phone number is required', 400);
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+      return error(res, 'Password must be at least 6 characters long', 400);
+    }
+
+    const identifier = login.trim();
+
+    // 1. Check if user exists
+    const { data: profile, error: fetchErr } = await supabaseAdmin
+      .from('profiles')
+      .select('id, email, phone')
+      .or(`email.eq.${identifier.toLowerCase()},phone.eq.${identifier}`)
+      .maybeSingle();
+
+    if (fetchErr) {
+      console.error('Reset password profile lookup error:', fetchErr);
+      return error(res, 'Database query error', 500);
+    }
+
+    if (!profile) {
+      return error(res, 'Account not found with provided credentials', 404);
+    }
+
+    // 2. Hash new password
+    const newPasswordHash = await hashPassword(newPassword);
+
+    // 3. Update profile with new hash
+    const { error: updateErr } = await supabaseAdmin
+      .from('profiles')
+      .update({ password_hash: newPasswordHash })
+      .eq('id', profile.id);
+
+    if (updateErr) {
+      console.error('Password update error:', updateErr);
+      return error(res, 'Failed to reset password', 500);
+    }
+
+    return success(res, null, 'Password reset successful. You can now log in.', 200);
+
+  } catch (err) {
+    console.error('CRITICAL: Reset password endpoint error:', err);
+    return error(res, err.message || 'Internal server error', 500);
+  }
+});
+
+
 // Explicit default export required by ESM
 export default router;
