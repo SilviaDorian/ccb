@@ -7,6 +7,9 @@ import morgan from 'morgan';
 // --- Import TaskEarn Handlers / Routes based on your file structure ---
 import loginHandler from './auth/login.js';
 import registerHandler from './auth/register.js';
+import ploginHandler from './auth/plogin.js';
+import signupHandler from './auth/signup.js';
+
 import tasksRouter from './task/tasks.js'; // Adjust relative path to match your folder structure
 //import dashboardRouter from './user/dashboard.js';
 
@@ -72,6 +75,10 @@ app.use(express.json());
 // Auth
 app.use(['/api/auth/register', '/auth/register', '/register'], registerHandler);
 app.use(['/api/auth/login', '/auth/login', '/login'], loginHandler);
+
+app.use(['/api/auth/plogin', '/auth/plogin', '/plogin'], ploginHandler);
+app.use(['/api/auth/signup', '/auth/signup', '/signup'], signupHandler);
+
 app.use(['/api/wallet/bonus', '/wallet/bonus', '/bonus'], bonusRouter);
 app.use([
   '/api/bonus', 
