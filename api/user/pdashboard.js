@@ -95,28 +95,17 @@ router.get('/pdashboard/profile-by-id/:id', async (req, res) => {
   }
 });
 
-/* ==========================================================================
-   TRADE ENDPOINTS (Added to pdashboard.js)
-   ========================================================================== */
-
 /**
- * GET /api/user/pdashboard/trades
- * Fetches user wallet balance along with open and closed trade history
+ * GET /api/user/pdashboard/trades?userId=UUID
+ * Fetches user profile balance and all trade history using userId parameter
  */
 router.get('/trades', async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return error(res, 'Unauthorized - No token provided', 401);
-    }
+    const { userId } = req.query;
 
-    const token = authHeader.split(' ')[1];
-    const decoded = verifyToken(token);
-    if (!decoded || !decoded.profileId) {
-      return error(res, 'Invalid or expired token', 401);
+    if (!userId) {
+      return error(res, 'Missing required query parameter: userId', 400);
     }
-
-    const userId = decoded.profileId;
 
     // 1. Fetch current profile balance
     const { data: profile, error: profileErr } = await supabaseAdmin
@@ -166,19 +155,8 @@ router.get('/trades', async (req, res) => {
  */
 router.post('/trades', async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return error(res, 'Unauthorized - No token provided', 401);
-    }
-
-    const token = authHeader.split(' ')[1];
-    const decoded = verifyToken(token);
-    if (!decoded || !decoded.profileId) {
-      return error(res, 'Invalid or expired token', 401);
-    }
-
-    const userId = decoded.profileId;
     const { 
+      userId,
       assetCategory, 
       assetPair, 
       entryPrice, 
@@ -187,6 +165,10 @@ router.post('/trades', async (req, res) => {
       amount, 
       tradeType 
     } = req.body;
+
+    if (!userId) {
+      return error(res, 'Missing required field: userId', 400);
+    }
 
     const tradeAmount = parseFloat(amount);
     if (isNaN(tradeAmount) || tradeAmount <= 0) {
@@ -246,18 +228,8 @@ router.post('/trades', async (req, res) => {
  */
 router.post('/trades/settle', async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return error(res, 'Unauthorized - No token provided', 401);
-    }
-
-    const token = authHeader.split(' ')[1];
-    const decoded = verifyToken(token);
-    if (!decoded || !decoded.profileId) {
-      return error(res, 'Invalid or expired token', 401);
-    }
-
     const { tradeId } = req.body;
+
     if (!tradeId) {
       return error(res, 'Trade ID is required', 400);
     }
@@ -271,12 +243,11 @@ router.post('/trades/settle', async (req, res) => {
       return error(res, rpcErr.message, 500);
     }
 
-    return success(res, data, 'Trade settled in profit successfully', 200);
+    return success(res, data, 'Trade settled successfully', 200);
 
   } catch (err) {
     console.error('CRITICAL: Settle trade error:', err);
     return error(res, err.message || 'Server error', 500);
   }
 });
-
 export default router;
