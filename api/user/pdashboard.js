@@ -6,27 +6,39 @@ import { success, error } from '../../utils/response.js';
 const router = express.Router();
 
 /**
+ * Helper function to extract and verify profileId from Authorization header
+ */
+const getAuthProfileId = (req) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { profileId: null, status: 401, message: 'Unauthorized - No token provided' };
+  }
+
+  const token = authHeader.split(' ')[1];
+  const decoded = verifyToken(token);
+  if (!decoded || !decoded.profileId) {
+    return { profileId: null, status: 401, message: 'Invalid or expired token' };
+  }
+
+  return { profileId: decoded.profileId, status: 200 };
+};
+
+/**
  * GET /api/user/pdashboard
  * Fetches user profile metrics (balance, deposit, withdrawal, full_name, language)
  */
 router.get('/', async (req, res) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return error(res, 'Unauthorized - No token provided', 401);
-    }
-
-    const token = authHeader.split(' ')[1];
-    const decoded = verifyToken(token);
-    if (!decoded || !decoded.profileId) {
-      return error(res, 'Invalid or expired token', 401);
+    const { profileId, status, message } = getAuthProfileId(req);
+    if (!profileId) {
+      return error(res, message, status);
     }
 
     // Fetch live user metrics from Supabase 'profiles' table
     const { data: profile, error: dbErr } = await supabaseAdmin
       .from('profiles')
       .select('id, full_name, email, phone, balance, deposit, withdrawn, country, language, is_verified, created_at')
-      .eq('id', decoded.profileId)
+      .eq('id', profileId)
       .single();
 
     if (dbErr || !profile) {
@@ -96,22 +108,21 @@ router.get('/pdashboard/profile-by-id/:id', async (req, res) => {
 });
 
 /**
- * GET /api/user/pdashboard/trades?userId=UUID
- * Fetches user profile balance and all trade history using userId parameter
+ * GET /api/user/pdashboard/trades
+ * Fetches user profile balance and all trade history using JWT token
  */
 router.get('/trades', async (req, res) => {
   try {
-    const { userId } = req.query;
-
-    if (!userId) {
-      return error(res, 'Missing required query parameter: userId', 400);
+    const { profileId, status, message } = getAuthProfileId(req);
+    if (!profileId) {
+      return error(res, message, status);
     }
 
     // 1. Fetch current profile balance
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from('profiles')
       .select('balance')
-      .eq('id', userId)
+      .eq('id', profileId)
       .single();
 
     if (profileErr || !profile) {
@@ -122,7 +133,7 @@ router.get('/trades', async (req, res) => {
     const { data: trades, error: tradesErr } = await supabaseAdmin
       .from('trades')
       .select('*')
-      .eq('user_id', userId)
+      .eq('user_id', profileId)
       .order('opened_at', { ascending: false });
 
     if (tradesErr) {
@@ -155,8 +166,12 @@ router.get('/trades', async (req, res) => {
  */
 router.post('/trades', async (req, res) => {
   try {
+    const { profileId, status, message } = getAuthProfileId(req);
+    if (!profileId) {
+      return error(res, message, status);
+    }
+
     const { 
-      userId,
       assetCategory, 
       assetPair, 
       entryPrice, 
@@ -165,10 +180,6 @@ router.post('/trades', async (req, res) => {
       amount, 
       tradeType 
     } = req.body;
-
-    if (!userId) {
-      return error(res, 'Missing required field: userId', 400);
-    }
 
     const tradeAmount = parseFloat(amount);
     if (isNaN(tradeAmount) || tradeAmount <= 0) {
@@ -179,7 +190,7 @@ router.post('/trades', async (req, res) => {
     const { data: profile, error: userErr } = await supabaseAdmin
       .from('profiles')
       .select('balance')
-      .eq('id', userId)
+      .eq('id', profileId)
       .single();
 
     if (userErr || !profile) {
@@ -200,7 +211,7 @@ router.post('/trades', async (req, res) => {
 
     // Call Database RPC function to create trade & deduct balance
     const { data, error: rpcErr } = await supabaseAdmin.rpc('place_trade', {
-      p_user_id: userId,
+      p_user_id: profileId,
       p_asset_category: assetCategory || 'Crypto',
       p_asset_pair: assetPair || 'BTC/USDT',
       p_entry_price: parseFloat(entryPrice || 0),
@@ -228,6 +239,11 @@ router.post('/trades', async (req, res) => {
  */
 router.post('/trades/settle', async (req, res) => {
   try {
+    const { profileId, status, message } = getAuthProfileId(req);
+    if (!profileId) {
+      return error(res, message, status);
+    }
+
     const { tradeId } = req.body;
 
     if (!tradeId) {
@@ -250,4 +266,5 @@ router.post('/trades/settle', async (req, res) => {
     return error(res, err.message || 'Server error', 500);
   }
 });
+
 export default router;
