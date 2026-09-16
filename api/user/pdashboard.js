@@ -95,4 +95,188 @@ router.get('/pdashboard/profile-by-id/:id', async (req, res) => {
   }
 });
 
+/* ==========================================================================
+   TRADE ENDPOINTS (Added to pdashboard.js)
+   ========================================================================== */
+
+/**
+ * GET /api/user/pdashboard/trades
+ * Fetches user wallet balance along with open and closed trade history
+ */
+router.get('/trades', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return error(res, 'Unauthorized - No token provided', 401);
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = verifyToken(token);
+    if (!decoded || !decoded.profileId) {
+      return error(res, 'Invalid or expired token', 401);
+    }
+
+    const userId = decoded.profileId;
+
+    // 1. Fetch current profile balance
+    const { data: profile, error: profileErr } = await supabaseAdmin
+      .from('profiles')
+      .select('balance')
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !profile) {
+      return error(res, 'User profile not found', 404);
+    }
+
+    // 2. Fetch trade records for user
+    const { data: trades, error: tradesErr } = await supabaseAdmin
+      .from('trades')
+      .select('*')
+      .eq('user_id', userId)
+      .order('opened_at', { ascending: false });
+
+    if (tradesErr) {
+      return error(res, tradesErr.message, 500);
+    }
+
+    const openTrades = trades ? trades.filter(t => t.status === 'OPEN') : [];
+    const closedTrades = trades ? trades.filter(t => t.status === 'CLOSED') : [];
+
+    return success(
+      res,
+      {
+        balance: parseFloat(profile.balance || 0),
+        openTrades,
+        closedTrades
+      },
+      'Trades fetched successfully',
+      200
+    );
+
+  } catch (err) {
+    console.error('CRITICAL: Fetch trades error:', err);
+    return error(res, err.message || 'Server error', 500);
+  }
+});
+
+/**
+ * POST /api/user/pdashboard/trades
+ * Validates balance, deducts stake, and opens a new trade position
+ */
+router.post('/trades', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return error(res, 'Unauthorized - No token provided', 401);
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = verifyToken(token);
+    if (!decoded || !decoded.profileId) {
+      return error(res, 'Invalid or expired token', 401);
+    }
+
+    const userId = decoded.profileId;
+    const { 
+      assetCategory, 
+      assetPair, 
+      entryPrice, 
+      leverage, 
+      durationSeconds, 
+      amount, 
+      tradeType 
+    } = req.body;
+
+    const tradeAmount = parseFloat(amount);
+    if (isNaN(tradeAmount) || tradeAmount <= 0) {
+      return error(res, 'Invalid trade amount provided', 400);
+    }
+
+    // Check user balance
+    const { data: profile, error: userErr } = await supabaseAdmin
+      .from('profiles')
+      .select('balance')
+      .eq('id', userId)
+      .single();
+
+    if (userErr || !profile) {
+      return error(res, 'User account not found', 404);
+    }
+
+    const currentBalance = parseFloat(profile.balance || 0);
+
+    // If balance is lower than stake, trigger HTTP 402 for deposit redirect
+    if (currentBalance < tradeAmount) {
+      return res.status(402).json({
+        success: false,
+        insufficientBalance: true,
+        message: 'Insufficient balance to place order. Please top up your wallet.',
+        redirectUrl: 'deposit.html'
+      });
+    }
+
+    // Call Database RPC function to create trade & deduct balance
+    const { data, error: rpcErr } = await supabaseAdmin.rpc('place_trade', {
+      p_user_id: userId,
+      p_asset_category: assetCategory || 'Crypto',
+      p_asset_pair: assetPair || 'BTC/USDT',
+      p_entry_price: parseFloat(entryPrice || 0),
+      p_leverage: leverage || '10x',
+      p_duration_seconds: parseInt(durationSeconds || 60),
+      p_amount: tradeAmount,
+      p_trade_type: tradeType || 'BUY'
+    });
+
+    if (rpcErr) {
+      return error(res, rpcErr.message, 500);
+    }
+
+    return success(res, data, 'Trade placed successfully', 201);
+
+  } catch (err) {
+    console.error('CRITICAL: Place trade error:', err);
+    return error(res, err.message || 'Server error', 500);
+  }
+});
+
+/**
+ * POST /api/user/pdashboard/trades/settle
+ * Settles an open trade on expiry and adds win profits to balance
+ */
+router.post('/trades/settle', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return error(res, 'Unauthorized - No token provided', 401);
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = verifyToken(token);
+    if (!decoded || !decoded.profileId) {
+      return error(res, 'Invalid or expired token', 401);
+    }
+
+    const { tradeId } = req.body;
+    if (!tradeId) {
+      return error(res, 'Trade ID is required', 400);
+    }
+
+    // Call Database RPC function to settle trade
+    const { data, error: rpcErr } = await supabaseAdmin.rpc('settle_trade', {
+      p_trade_id: tradeId
+    });
+
+    if (rpcErr) {
+      return error(res, rpcErr.message, 500);
+    }
+
+    return success(res, data, 'Trade settled in profit successfully', 200);
+
+  } catch (err) {
+    console.error('CRITICAL: Settle trade error:', err);
+    return error(res, err.message || 'Server error', 500);
+  }
+});
+
 export default router;
