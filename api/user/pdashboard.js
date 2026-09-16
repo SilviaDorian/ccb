@@ -50,4 +50,49 @@ router.get('/', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/user/pdashboard/profile-by-id/:id
+ * Direct profile lookup by User UUID
+ */
+router.get('/pdashboard/profile-by-id/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'User ID is required' });
+    }
+
+    // Query profiles table directly in Supabase using the UUID
+    const { data: profile, error: dbErr } = await supabaseAdmin
+      .from('profiles')
+      .select('id, full_name, email, balance, deposit, withdrawn, language, is_verified')
+      .eq('id', id)
+      .single();
+
+    if (dbErr || !profile) {
+      console.error('Supabase profile query error:', dbErr);
+      return res.status(404).json({ success: false, message: 'Profile not found' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        id: profile.id,
+        name: profile.full_name || 'Trader',
+        email: profile.email || 'N/A',
+        balance: profile.balance || 0,
+        deposit: profile.deposit || 0,
+        withdrawn: profile.withdrawn || 0,
+        language: profile.language || 'en',
+        isVerified: profile.is_verified || false
+      },
+      message: 'Profile retrieved successfully'
+    });
+
+  } catch (err) {
+    console.error('Error in profile-by-id route:', err);
+    return res.status(500).json({ success: false, message: err.message || 'Server error' });
+  }
+});
+
 export default router;
