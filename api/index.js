@@ -33,6 +33,8 @@ import withdrawRouter from './wallet/withdraw.js';
 import webhookRouter from './wallet/webhook.js';
 import upgradeRouter from './vip/upgrade.js';
 import pdashboardRouter from './user/pdashboard.js';
+import adminRouter from './user/admin.js';
+
 
 
 
@@ -113,6 +115,11 @@ app.use('/api/vip', upgradeRouter);
 app.use(['/api/user','/api/users','/api/user/dashboard','/dashboard'], userDashboardHandler);
 app.use('/api/user/pdashboard', pdashboardRouter);
 app.use('/pdashboard', pdashboardRouter);
+
+// Mounts dashboardHandler across all common dashboard endpoint aliases
+app.use(['/api/user','/api/users','/api/user/admin','/admin'], adminRouter);
+app.use('/api/user/admin', adminRouter);
+app.use('/admin', adminRouter);
 
 app.use(['/api/user','/api/users','/api/user/profile','/profile'], userProfileHandler);
 //app.use(['/api/user','/api/users','/api/user/admin','/admin'], userAdminHandler);

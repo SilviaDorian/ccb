@@ -140,8 +140,9 @@ router.get('/trades', async (req, res) => {
       return error(res, tradesErr.message, 500);
     }
 
-    const openTrades = trades ? trades.filter(t => t.status === 'OPEN') : [];
-    const closedTrades = trades ? trades.filter(t => t.status === 'CLOSED') : [];
+    // Filter based on explicit status: 'active' goes to openTrades, 'closed' or 'settled' goes to closedTrades
+    const openTrades = trades ? trades.filter(t => t.status === 'active' || t.status === 'OPEN') : [];
+    const closedTrades = trades ? trades.filter(t => t.status === 'closed' || t.status === 'settled' || t.status === 'CLOSED') : [];
 
     return success(
       res,
@@ -162,7 +163,7 @@ router.get('/trades', async (req, res) => {
 
 /**
  * POST /api/user/pdashboard/trades
- * Validates balance, deducts stake, and opens a new trade position
+ * Validates balance, deducts stake, and opens a new trade position with 'active' status
  */
 router.post('/trades', async (req, res) => {
   try {
@@ -209,7 +210,7 @@ router.post('/trades', async (req, res) => {
       });
     }
 
-    // Call Database RPC function to create trade & deduct balance
+    // Call Database RPC function to create trade & deduct balance immediately
     const { data, error: rpcErr } = await supabaseAdmin.rpc('place_trade', {
       p_user_id: profileId,
       p_asset_category: assetCategory || 'Crypto',
@@ -235,7 +236,7 @@ router.post('/trades', async (req, res) => {
 
 /**
  * POST /api/user/pdashboard/trades/settle
- * Settles an open trade on expiry and adds win profits to balance
+ * Settles an active trade exactly once, updates balance, and locks status to 'settled'
  */
 router.post('/trades/settle', async (req, res) => {
   try {
@@ -245,14 +246,40 @@ router.post('/trades/settle', async (req, res) => {
     }
 
     const { tradeId } = req.body;
+    const cleanTradeId = tradeId || req.body.id;
 
-    if (!tradeId) {
+    if (!cleanTradeId) {
       return error(res, 'Trade ID is required', 400);
     }
 
-    // Call Database RPC function to settle trade
+    // 1. Double check trade existence and ensure it isn't already settled in DB
+    const { data: existingTrade, error: fetchErr } = await supabaseAdmin
+      .from('trades')
+      .select('id, status, user_id')
+      .eq('id', cleanTradeId)
+      .single();
+
+    if (fetchErr || !existingTrade) {
+      return error(res, 'Trade not found', 404);
+    }
+
+    // Prevent duplicate payouts if already settled or closed
+    if (existingTrade.status === 'settled' || existingTrade.status === 'CLOSED') {
+      return res.status(200).json({
+        success: true,
+        message: 'Trade was already settled previously.'
+      });
+    }
+
+    // Verify ownership
+    if (existingTrade.user_id !== profileId) {
+      return error(res, 'Unauthorized trade access', 403);
+    }
+
+    // 2. Call Database RPC function to settle trade safely and update balance atomically
     const { data, error: rpcErr } = await supabaseAdmin.rpc('settle_trade', {
-      p_trade_id: tradeId
+      p_trade_id: cleanTradeId,
+      p_user_id: profileId
     });
 
     if (rpcErr) {
