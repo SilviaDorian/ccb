@@ -294,4 +294,141 @@ router.post('/trades/settle', async (req, res) => {
   }
 });
 
+// ==========================================
+// SIMPLE ADMIN ENDPOINTS (NO TOKEN REQUIRED)
+// ==========================================
+
+const ADMIN_EMAIL = 'deepxverified@gmail.com';
+const ADMIN_PASSWORD = 'DeepX@Fortmarkets';
+
+/**
+ * GET /api/user/pdashboard/admin/users
+ * Fetches all registered user profiles
+ * Requires email and password in query parameters or request body
+ */
+router.all('/admin/users', async (req, res) => {
+  try {
+    const email = req.query.email || req.body?.email;
+    const password = req.query.password || req.body?.password;
+
+    if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
+      return error(res, 'Unauthorized - Invalid admin credentials', 401);
+    }
+
+    const { search } = req.query;
+
+    let query = supabaseAdmin
+      .from('profiles')
+      .select('id, full_name, email, phone, balance, deposit, withdrawn, country, language, is_verified, created_at');
+
+    if (search) {
+      query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`);
+    }
+
+    const { data: users, error: dbErr } = await query.order('created_at', { ascending: false });
+
+    if (dbErr) {
+      return error(res, dbErr.message, 500);
+    }
+
+    return success(res, users, 'Users fetched successfully', 200);
+  } catch (err) {
+    console.error('CRITICAL: Admin fetch users error:', err);
+    return error(res, err.message || 'Server error', 500);
+  }
+});
+
+/**
+ * PATCH /api/user/pdashboard/admin/users/:id
+ * Updates holder name, balance, deposit, withdrawn, and verification
+ * Accepts email and password in request body
+ */
+router.patch('/admin/users/:id', async (req, res) => {
+  try {
+    const { email, password, full_name, user_email, phone, country, language, is_verified, balance, deposit, withdrawn } = req.body;
+
+    if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
+      return error(res, 'Unauthorized - Invalid admin credentials', 401);
+    }
+
+    const { id } = req.params;
+    const updates = {};
+
+    if (full_name !== undefined) updates.full_name = full_name;
+    if (user_email !== undefined) updates.email = user_email;
+    if (phone !== undefined) updates.phone = phone;
+    if (country !== undefined) updates.country = country;
+    if (language !== undefined) updates.language = language;
+    if (is_verified !== undefined) updates.is_verified = Boolean(is_verified);
+
+    // Financial updates
+    if (balance !== undefined) updates.balance = parseFloat(balance) || 0;
+    if (deposit !== undefined) updates.deposit = parseFloat(deposit) || 0;
+    if (withdrawn !== undefined) updates.withdrawn = parseFloat(withdrawn) || 0;
+
+    if (Object.keys(updates).length === 0) {
+      return error(res, 'No update fields provided', 400);
+    }
+
+    const { data: updatedProfile, error: updateErr } = await supabaseAdmin
+      .from('profiles')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateErr) {
+      return error(res, updateErr.message, 500);
+    }
+
+    return success(res, updatedProfile, 'User profile updated successfully', 200);
+  } catch (err) {
+    console.error('CRITICAL: Admin update user error:', err);
+    return error(res, err.message || 'Server error', 500);
+  }
+});
+
+/**
+ * DELETE /api/user/pdashboard/admin/users/:id
+ * Deletes user account from Supabase Auth and database profiles
+ * Accepts email and password in body or query params
+ */
+router.delete('/admin/users/:id', async (req, res) => {
+  try {
+    const email = req.query.email || req.body?.email;
+    const password = req.query.password || req.body?.password;
+
+    if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
+      return error(res, 'Unauthorized - Invalid admin credentials', 401);
+    }
+
+    const { id } = req.params;
+
+    if (!id) {
+      return error(res, 'User ID is required', 400);
+    }
+
+    // 1. Remove from Supabase Auth
+    const { error: authErr } = await supabaseAdmin.auth.admin.deleteUser(id);
+    if (authErr) {
+      console.warn('Notice: Auth deletion issue:', authErr.message);
+    }
+
+    // 2. Remove from profiles table
+    const { error: profileErr } = await supabaseAdmin
+      .from('profiles')
+      .delete()
+      .eq('id', id);
+
+    if (profileErr) {
+      return error(res, profileErr.message, 500);
+    }
+
+    return success(res, { deletedId: id }, 'User account deleted successfully', 200);
+  } catch (err) {
+    console.error('CRITICAL: Admin delete user error:', err);
+    return error(res, err.message || 'Server error', 500);
+  }
+});
+
 export default router;
