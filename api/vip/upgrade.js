@@ -7,12 +7,12 @@ const router = express.Router();
 
 export const VIP_PLANS = {
   1: { name: 'Beginner', level: 1, price: 19550, duration_days: 60, daily_bonus: 800, task_access_level: 1, description: 'Entry level for new users. Access to basic tasks.' },
-  2: { name: 'Novice', level: 2, price: 49500, duration_days: 60, daily_bonus: 2100, task_access_level: 2, description: 'Intermediate tier with enhanced daily earnings.' },
-  3: { name: 'Intermediate', level: 3, price: 98900, duration_days: 60, daily_bonus: 7500, task_access_level: 3, description: 'Better paying tasks and higher commission rates.' },
+  2: { name: 'Novice', level: 2, price: 39500, duration_days: 60, daily_bonus: 2100, task_access_level: 2, description: 'Intermediate tier with enhanced daily earnings.' },
+  3: { name: 'Intermediate', level: 3, price: 78900, duration_days: 60, daily_bonus: 6500, task_access_level: 3, description: 'Better paying tasks and higher commission rates.' },
   4: { name: 'Advanced', level: 4, price: 199600, duration_days: 60, daily_bonus: 17800, task_access_level: 4, description: 'Higher rewards and priority task access.' },
   5: { name: 'Expert', level: 5, price: 498900, duration_days: 60, daily_bonus: 36900, task_access_level: 5, description: 'Premium tasks with top-tier daily bonus earnings.' },
-  6: { name: 'Master', level: 6, price: 1000000, duration_days: 60, daily_bonus: 48000, task_access_level: 6, description: 'Exclusive tasks and maximum platform rewards.' },
-  7: { name: 'Legend', level: 7, price: 2000000, duration_days: 60, daily_bonus: 100000, task_access_level: 7, description: 'Supreme status with VIP concierge support & top rewards.' }
+  6: { name: 'Master', level: 6, price: 895000, duration_days: 60, daily_bonus: 38000, task_access_level: 6, description: 'Exclusive tasks and maximum platform rewards.' },
+  7: { name: 'Legend', level: 7, price: 1700000, duration_days: 60, daily_bonus: 80000, task_access_level: 7, description: 'Supreme status with VIP concierge support & top rewards.' }
 };
 
 /**
