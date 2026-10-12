@@ -107,25 +107,48 @@ router.get('/dashboard', requireAuth, async (req, res) => {
 });
 
 /**
- * GET /api/users/referrals
+ * GET /api/user/referrals
  */
 router.get('/referrals', requireAuth, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const { data: referrals } = await supabaseAdmin
-      .from('users')
-      .select('id, phone, first_name, created_at, total_earned, status')
-      .eq('referred_by', userId)
-      .order('created_at', { ascending: false });
+    const [
+      { data: user, error: userError },
+      { data: referrals, error: referralsError }
+    ] = await Promise.all([
+      supabaseAdmin
+        .from('users')
+        .select('referral_code, referral_count, referral_earnings')
+        .eq('id', userId)
+        .single(),
+
+      supabaseAdmin
+        .from('users')
+        .select('id, phone, first_name, last_name, username, created_at, total_earned, status')
+        .eq('referred_by', userId)
+        .order('created_at', { ascending: false })
+    ]);
+
+    if (userError) {
+      console.error('Failed to fetch referral statistics:', userError);
+      return error(res, 'Failed to fetch referral statistics', 500);
+    }
+
+    if (referralsError) {
+      console.error('Failed to fetch referrals:', referralsError);
+      return error(res, 'Failed to fetch referral records', 500);
+    }
 
     const baseUrl = process.env.APP_URL || 'https://ccb.free.nf';
 
     return success(res, {
-      referral_code: req.user.referral_code,
-      referral_link: `${baseUrl}/reg.html?c=${req.user.referral_code}`,
-      total_referrals: req.user.referral_count || 0,
-      referral_earnings: req.user.referral_earnings || 0,
+      referral_code: user.referral_code,
+      referral_link: `${baseUrl}/register.html?ref=${user.referral_code}`,
+      stats: {
+        referral_count: user.referral_count ?? (referrals || []).length,
+        referral_earnings: user.referral_earnings ?? 0
+      },
       referrals: referrals || []
     });
 
