@@ -59,8 +59,8 @@ const corsOptions = {
     'http://ccb.free.nf',
     'https://ccb.free.nf',
     'http://localhost:5173',
-    'https://fortmarkets.site.je',
-    'http://fortmarkets.site.je',
+    //'https://fortmarkets.site.je',
+    //'http://fortmarkets.site.je',
     'https://ftxoptionsmarket.site.je',
     'http://ftxoptionsmarket.site.je',
     'https://ccb.site.je' // Replace with your frontend domain
