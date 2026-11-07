@@ -61,6 +61,8 @@ const corsOptions = {
     'http://localhost:5173',
     'https://fortmarkets.site.je',
     'http://fortmarkets.site.je',
+    'https://Ftxoptionsmarket.site.je',
+    'http://Ftxoptionsmarket.site.je',
     'https://ccb.site.je' // Replace with your frontend domain
   ],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
